@@ -52,7 +52,7 @@ sys.path.insert(0, str(database_dir))
 from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy import select, func, and_, desc, text
+from sqlalchemy import select, func, and_, desc, text, Integer
 import logging
 
 # Import our database models
@@ -246,7 +246,7 @@ class DatabaseMonitor:
                         func.date(DataSyncLog.sync_start_time).label('sync_date'),
                         DataSyncLog.source_type,
                         func.count(DataSyncLog.id).label('total_syncs'),
-                        func.sum(func.case((DataSyncLog.success.is_(True), 1), else_=0)).label('successful_syncs'),
+                        func.sum(DataSyncLog.success.cast(Integer)).label('successful_syncs'),
                         func.avg(DataSyncLog.sync_duration_ms).label('avg_duration_ms'),
                         func.sum(DataSyncLog.records_added).label('total_records_added')
                     )
@@ -258,13 +258,17 @@ class DatabaseMonitor:
                     .order_by(func.date(DataSyncLog.sync_start_time))
                 )
                 
+                results = result.fetchall()
                 return [
                     {
-                        'asset_type': str(row[0]), 
-                        'count': row[1], 
-                        'avg_market_cap': row[2]
+                        'sync_date': row[0],
+                        'source_type': str(row[1]),
+                        'total_syncs': row[2],
+                        'successful_syncs': row[3],
+                        'avg_duration_ms': float(row[4]) if row[4] else 0,
+                        'total_records_added': row[5] or 0
                     } 
-                    for row in result.fetchall()
+                    for row in results
                 ]
                 
         except Exception as e:
@@ -284,7 +288,15 @@ class DatabaseMonitor:
                     .group_by(MarketAssets.asset_type)
                 )
                 
-                return [dict(row) for row in result.fetchall()]
+                results = result.fetchall()
+                return [
+                    {
+                        'asset_type': str(row[0]),
+                        'count': row[1],
+                        'avg_market_cap': float(row[2]) if row[2] else 0
+                    }
+                    for row in results
+                ]
                 
         except Exception as e:
             st.error(f"Error getting asset breakdown: {e}")
@@ -515,7 +527,7 @@ def render_asset_breakdown(data):
                 title="💰 Average Market Cap by Asset Type",
                 labels={'avg_market_cap': 'Avg Market Cap ($)'}
             )
-            fig_bar.update_yaxis(tickformat='$.2s')
+            fig_bar.update_layout(yaxis_tickformat='$.2s')
             st.plotly_chart(fig_bar, use_container_width=True)
         else:
             st.info("No market cap data available")
