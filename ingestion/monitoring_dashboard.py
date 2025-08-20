@@ -416,15 +416,17 @@ def render_sync_activity_chart(data):
     df['date'] = df['sync_start_time'].dt.date
     
     # Success rate by source type
-    success_by_source = df.groupby(['source_type', 'success']).size().unstack(fill_value=0)
+    success_by_source = df.groupby(['source_type', 'success']).size().reset_index(name='count')
+    success_by_source['success'] = success_by_source['success'].map({True: 'Success', False: 'Failed'})
     
     fig = px.bar(
-        success_by_source.reset_index(),
+        success_by_source,
         x='source_type',
-        y=[True, False],
+        y='count',
+        color='success',
         title="📈 Sync Success Rate by Data Source (Last 7 Days)",
-        labels={'value': 'Number of Syncs', 'variable': 'Success Status'},
-        color_discrete_map={True: '#2E8B57', False: '#DC143C'}
+        labels={'count': 'Number of Syncs', 'success': 'Status'},
+        color_discrete_map={'Success': '#2E8B57', 'Failed': '#DC143C'}
     )
     
     st.plotly_chart(fig, use_container_width=True)
