@@ -1,14 +1,8 @@
 {
   "categories_completed": [
-    "federal_reserve",
-    "employment",
-    "inflation",
-    "gdp_growth",
-    "market_volatility",
-    "corporate_earnings",
-    "geopolitical"
+    "federal_reserve"
   ],
-  "api_calls_made": 252,
-  "total_articles_collected": 1020,
-  "last_update": "2025-08-20T20:52:48.312231+00:00"
+  "api_calls_made": 90,
+  "total_articles_collected": 1485,
+  "last_update": "2025-08-22T19:36:33.469385+00:00"
 }

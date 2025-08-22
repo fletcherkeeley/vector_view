@@ -9,6 +9,7 @@ Key Features:
 - Priority-based category processing (Fed news first, etc.)
 - Intelligent date chunking to avoid API limits
 - Intensive mode: all keywords + 5-day chunks for maximum collection
+- MEGA mode: 2-day chunks + 12 categories + expanded keywords for 4K+ articles
 - Progress tracking and resume capability
 - API quota monitoring and optimization
 - Comprehensive reporting and statistics
@@ -16,6 +17,7 @@ Key Features:
 Usage:
     python news_historical_backfill.py                    # Full 30-day backfill
     python news_historical_backfill.py --intensive        # Intensive mode (all keywords + small chunks)
+    python news_historical_backfill.py --mega             # MEGA mode (2-day chunks + 12 categories)
     python news_historical_backfill.py --days 14          # Custom day range
     python news_historical_backfill.py --resume           # Resume interrupted backfill
 """
@@ -96,96 +98,154 @@ class NewsHistoricalBackfill:
             self.logger.info("Database connection initialized for backfill")
         return success
     
-    def get_prioritized_categories(self) -> List[Dict[str, Any]]:
+    def get_prioritized_categories(self, mega_mode: bool = False) -> List[Dict[str, Any]]:
         """
         Get economic categories in priority order for backfill.
+        
+        Args:
+            mega_mode: If True, include expanded categories and keyword counts
         
         Returns:
             List of category configs with priority, API efficiency estimates
         """
-        return [
+        base_categories = [
             {
                 'name': 'federal_reserve',
                 'priority': 10,
-                'keywords_count': 7,  # Number of keywords to search
-                'estimated_api_calls': 21,  # 7 keywords × 3 time chunks
-                'description': 'Federal Reserve policy and rate decisions'
+                'keywords_count': 16 if mega_mode else 7,
+                'estimated_api_calls': 48 if mega_mode else 21,
+                'description': 'Federal Reserve policy and rate decisions' + (' - EXPANDED' if mega_mode else '')
             },
             {
                 'name': 'employment',
                 'priority': 9,
-                'keywords_count': 7,
-                'estimated_api_calls': 21,
-                'description': 'Employment data and labor market trends'
+                'keywords_count': 13 if mega_mode else 7,
+                'estimated_api_calls': 39 if mega_mode else 21,
+                'description': 'Employment data and labor market trends' + (' - EXPANDED' if mega_mode else '')
             },
             {
                 'name': 'inflation',
                 'priority': 9,
-                'keywords_count': 7,
-                'estimated_api_calls': 21,
-                'description': 'Inflation indicators and price trends'
+                'keywords_count': 13 if mega_mode else 7,
+                'estimated_api_calls': 39 if mega_mode else 21,
+                'description': 'Inflation indicators and price trends' + (' - EXPANDED' if mega_mode else '')
             },
             {
                 'name': 'gdp_growth',
                 'priority': 8,
-                'keywords_count': 6,
-                'estimated_api_calls': 18,
-                'description': 'GDP growth and economic indicators'
+                'keywords_count': 12 if mega_mode else 6,
+                'estimated_api_calls': 36 if mega_mode else 18,
+                'description': 'GDP growth and economic indicators' + (' - EXPANDED' if mega_mode else '')
             },
             {
                 'name': 'market_volatility',
                 'priority': 7,
-                'keywords_count': 7,
-                'estimated_api_calls': 21,
-                'description': 'Market volatility and stress indicators'
+                'keywords_count': 13 if mega_mode else 7,
+                'estimated_api_calls': 39 if mega_mode else 21,
+                'description': 'Market volatility and stress indicators' + (' - EXPANDED' if mega_mode else '')
             },
             {
                 'name': 'corporate_earnings',
                 'priority': 6,
-                'keywords_count': 5,
-                'estimated_api_calls': 15,
-                'description': 'Corporate earnings and business performance'
+                'keywords_count': 12 if mega_mode else 5,
+                'estimated_api_calls': 36 if mega_mode else 15,
+                'description': 'Corporate earnings and business performance' + (' - EXPANDED' if mega_mode else '')
             },
             {
                 'name': 'geopolitical',
                 'priority': 6,
-                'keywords_count': 6,
-                'estimated_api_calls': 18,
-                'description': 'Geopolitical events affecting markets'
+                'keywords_count': 13 if mega_mode else 6,
+                'estimated_api_calls': 39 if mega_mode else 18,
+                'description': 'Geopolitical events affecting markets' + (' - EXPANDED' if mega_mode else '')
             }
         ]
+        
+        # Add new categories for mega mode
+        if mega_mode:
+            base_categories.extend([
+                {
+                    'name': 'banking_finance',
+                    'priority': 8,
+                    'keywords_count': 12,
+                    'estimated_api_calls': 36,
+                    'description': 'Banking sector and financial services - NEW'
+                },
+                {
+                    'name': 'technology_innovation',
+                    'priority': 8,
+                    'keywords_count': 11,
+                    'estimated_api_calls': 33,
+                    'description': 'Technology sector and innovation - NEW'
+                },
+                {
+                    'name': 'energy_commodities',
+                    'priority': 7,
+                    'keywords_count': 13,
+                    'estimated_api_calls': 39,
+                    'description': 'Energy sector and commodity markets - NEW'
+                },
+                {
+                    'name': 'housing_real_estate',
+                    'priority': 7,
+                    'keywords_count': 12,
+                    'estimated_api_calls': 36,
+                    'description': 'Housing market and real estate - NEW'
+                },
+                {
+                    'name': 'consumer_retail',
+                    'priority': 7,
+                    'keywords_count': 12,
+                    'estimated_api_calls': 36,
+                    'description': 'Consumer spending and retail sector - NEW'
+                },
+                {
+                    'name': 'healthcare_pharma',
+                    'priority': 6,
+                    'keywords_count': 11,
+                    'estimated_api_calls': 33,
+                    'description': 'Healthcare and pharmaceutical sector - NEW'
+                }
+            ])
+        
+        return base_categories
     
-    def calculate_optimal_strategy(self, days_back: int, intensive_mode: bool = False) -> Dict[str, Any]:
+    def calculate_optimal_strategy(self, days_back: int, intensive_mode: bool = False, mega_mode: bool = False) -> Dict[str, Any]:
         """
         Calculate optimal backfill strategy based on API limits.
         
         Args:
             days_back: Number of days to backfill
             intensive_mode: If True, use all keywords and smaller chunks for maximum collection
+            mega_mode: If True, use 2-day chunks and expanded categories for 4K+ articles
             
         Returns:
             Strategy configuration
         """
-        categories = self.get_prioritized_categories()
+        categories = self.get_prioritized_categories(mega_mode)
         
-        if intensive_mode:
+        if mega_mode:
+            # MEGA MODE: 2-day chunks, ALL keywords, ALL categories for maximum collection
+            chunk_size = 2
+            keywords_per_search = 'all'
+            num_chunks = (days_back + chunk_size - 1) // chunk_size
+            total_estimated_calls = sum(cat['keywords_count'] for cat in categories) * num_chunks * 2
+        elif intensive_mode:
             # Use ALL keywords (not just top 3) and smaller chunks
-            chunk_size = 5  # Smaller chunks for better coverage
-            keywords_per_search = 'all'  # Use all keywords
-            # Calculate estimated calls: categories × chunks × keywords
-            num_chunks = (days_back + chunk_size - 1) // chunk_size  # Ceiling division
+            chunk_size = 5
+            keywords_per_search = 'all'
+            num_chunks = (days_back + chunk_size - 1) // chunk_size
             total_estimated_calls = sum(cat['keywords_count'] for cat in categories) * num_chunks
         else:
             # Conservative mode (original behavior)
             total_estimated_calls = sum(cat['estimated_api_calls'] for cat in categories)
             # Time chunking strategy - break 30 days into larger chunks
             if days_back <= 7:
-                chunk_size = days_back  # Single chunk for short periods
+                chunk_size = days_back
             elif days_back <= 14:
-                chunk_size = 7  # Weekly chunks
+                chunk_size = 7
             else:
-                chunk_size = 10  # 10-day chunks for longer periods
-            keywords_per_search = 3  # Top 3 keywords only
+                chunk_size = 10
+            keywords_per_search = 3
         
         chunks = []
         for i in range(0, days_back, chunk_size):
@@ -200,7 +260,12 @@ class NewsHistoricalBackfill:
         available_calls = self.max_api_calls - self.api_calls_made
         
         if total_estimated_calls <= available_calls:
-            strategy = 'intensive_backfill' if intensive_mode else 'full_backfill'
+            if mega_mode:
+                strategy = 'mega_intensive_backfill'
+            elif intensive_mode:
+                strategy = 'intensive_backfill'
+            else:
+                strategy = 'full_backfill'
             selected_categories = categories
         else:
             strategy = 'priority_backfill'
@@ -208,7 +273,13 @@ class NewsHistoricalBackfill:
             selected_categories = []
             running_calls = 0
             for cat in categories:
-                estimated_calls = cat['keywords_count'] * len(chunks) if intensive_mode else cat['estimated_api_calls']
+                if mega_mode:
+                    estimated_calls = cat['keywords_count'] * len(chunks) * 2
+                elif intensive_mode:
+                    estimated_calls = cat['keywords_count'] * len(chunks)
+                else:
+                    estimated_calls = cat['estimated_api_calls']
+                
                 if running_calls + estimated_calls <= available_calls:
                     selected_categories.append(cat)
                     running_calls += estimated_calls
@@ -224,6 +295,7 @@ class NewsHistoricalBackfill:
             'estimated_total_calls': total_estimated_calls,
             'available_calls': available_calls,
             'intensive_mode': intensive_mode,
+            'mega_mode': mega_mode,
             'keywords_per_search': keywords_per_search
         }
     
@@ -396,7 +468,8 @@ class NewsHistoricalBackfill:
         self,
         days_back: int = 30,
         resume: bool = False,
-        intensive_mode: bool = False
+        intensive_mode: bool = False,
+        mega_mode: bool = False
     ) -> Dict[str, Any]:
         """
         Run the complete historical backfill operation.
@@ -405,6 +478,7 @@ class NewsHistoricalBackfill:
             days_back: Number of days to backfill
             resume: Whether to resume from previous progress
             intensive_mode: Use multiple searches per chunk for maximum collection
+            mega_mode: Use 2-day chunks, expanded categories, and all keywords for 4K+ articles
             
         Returns:
             Complete backfill results
@@ -424,11 +498,14 @@ class NewsHistoricalBackfill:
                 self.logger.warning(f"Could not load progress file: {e}")
         
         # Calculate optimal strategy
-        strategy = self.calculate_optimal_strategy(days_back, intensive_mode)
+        strategy = self.calculate_optimal_strategy(days_back, intensive_mode, mega_mode)
         
         self.logger.info("🚀 Starting News Historical Backfill")
+        if mega_mode:
+            self.logger.info("🔥 MEGA MODE: 2-day chunks, 13 categories, expanded keywords!")
         self.logger.info(f"Strategy: {strategy['strategy']}")
         self.logger.info(f"Intensive Mode: {intensive_mode}")
+        self.logger.info(f"Mega Mode: {mega_mode}")
         self.logger.info(f"Days to backfill: {days_back}")
         self.logger.info(f"Chunk size: {strategy['chunk_size']} days")
         self.logger.info(f"Keywords per search: {strategy['keywords_per_search']}")
@@ -454,6 +531,7 @@ class NewsHistoricalBackfill:
             self.logger.info(f"\n📊 Processing category: {category.upper()}")
             self.logger.info(f"Priority: {category_config['priority']}")
             self.logger.info(f"Description: {category_config['description']}")
+            self.logger.info(f"Keywords: {category_config['keywords_count']}")
             
             category_results = []
             
@@ -467,12 +545,12 @@ class NewsHistoricalBackfill:
                 chunk_start = start_date + timedelta(days=chunk['start_day'])
                 chunk_end = start_date + timedelta(days=chunk['end_day'] - 1)
                 
-                if intensive_mode:
+                if mega_mode or intensive_mode:
                     result = await self.backfill_category_chunk_intensive(
                         category,
                         chunk_start,
                         chunk_end,
-                        max_articles_per_search=75
+                        max_articles_per_search=100 if mega_mode else 75
                     )
                 else:
                     result = await self.backfill_category_chunk(
@@ -485,8 +563,9 @@ class NewsHistoricalBackfill:
                 category_results.append(result)
                 all_results.append(result)
                 
-                # Small delay between chunks to be respectful
-                await asyncio.sleep(2)
+                # Shorter delay for mega mode to maximize throughput
+                delay = 1 if mega_mode else 2
+                await asyncio.sleep(delay)
             
             # Mark category as completed
             self.categories_completed.append(category)
@@ -509,6 +588,7 @@ class NewsHistoricalBackfill:
             'total_duration_seconds': total_duration,
             'strategy_used': strategy['strategy'],
             'intensive_mode': intensive_mode,
+            'mega_mode': mega_mode,
             'days_backfilled': days_back,
             'categories_completed': len(self.categories_completed),
             'total_categories_planned': len(strategy['selected_categories']),
@@ -545,7 +625,13 @@ class NewsHistoricalBackfill:
         print("🎯 NEWS HISTORICAL BACKFILL SUMMARY")
         print("="*80)
         
-        mode_text = "INTENSIVE MODE" if results['intensive_mode'] else "STANDARD MODE"
+        if results['mega_mode']:
+            mode_text = "MEGA MODE"
+        elif results['intensive_mode']:
+            mode_text = "INTENSIVE MODE"
+        else:
+            mode_text = "STANDARD MODE"
+        
         print(f"Mode: {mode_text}")
         print(f"📅 Started:  {results['start_time'].strftime('%Y-%m-%d %H:%M:%S UTC')}")
         print(f"📅 Finished: {results['end_time'].strftime('%Y-%m-%d %H:%M:%S UTC')}")
@@ -605,6 +691,7 @@ async def main():
 Examples:
   python news_historical_backfill.py                     # Full 30-day backfill
   python news_historical_backfill.py --intensive         # Intensive mode (2x searches per chunk)
+  python news_historical_backfill.py --mega              # MEGA mode (2-day chunks + 13 categories)
   python news_historical_backfill.py --days 14           # 14-day backfill
   python news_historical_backfill.py --resume            # Resume interrupted backfill
   python news_historical_backfill.py --max-calls 500     # Limit API usage
@@ -628,6 +715,12 @@ Examples:
         '--intensive',
         action='store_true',
         help='Use intensive mode: multiple searches per chunk for maximum collection'
+    )
+    
+    parser.add_argument(
+        '--mega',
+        action='store_true',
+        help='Use MEGA mode: 2-day chunks, 13 categories, all keywords for 4K+ articles'
     )
     
     parser.add_argument(
@@ -666,7 +759,12 @@ Examples:
         
         # Confirm operation
         if not args.resume:
-            mode_text = "intensive mode (multiple searches per chunk)" if args.intensive else "standard mode"
+            if args.mega:
+                mode_text = "MEGA mode (2-day chunks, 13 categories, all keywords for 4K+ articles)"
+            elif args.intensive:
+                mode_text = "intensive mode (multiple searches per chunk)"
+            else:
+                mode_text = "standard mode"
             print(f"🔄 Ready to backfill {args.days} days of economic news in {mode_text}")
             print(f"📊 Max API calls: {args.max_calls}")
             response = input("Continue? (y/N): ")
@@ -678,7 +776,8 @@ Examples:
         results = await backfill.run_backfill(
             days_back=args.days,
             resume=args.resume,
-            intensive_mode=args.intensive
+            intensive_mode=args.intensive,
+            mega_mode=args.mega
         )
         
         # Print summary

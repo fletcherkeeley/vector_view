@@ -128,61 +128,107 @@ class NewsSeriesFetcher:
     
     def _get_economic_keywords(self) -> Dict[str, Dict[str, Any]]:
         """
-        Get economic keywords for intelligent news searching.
+        Get HYBRID EXPANDED keywords for comprehensive news searching.
+        Core economic categories + broader social/political/industry topics.
         
         Returns:
             Dictionary mapping category -> {keywords, series, assets, priority}
         """
         # These match your existing news_topic_mapping entries
         return {
+            # CORE ECONOMIC CATEGORIES (EXPANDED)
             'federal_reserve': {
-                'keywords': ['federal reserve', 'fed meeting', 'fed chair', 'jerome powell', 'interest rates', 'monetary policy', 'fomc'],
+                'keywords': ['federal reserve', 'fed meeting', 'fed chair', 'jerome powell', 'interest rates', 'monetary policy', 'fomc', 'fed funds rate', 'fed minutes', 'jackson hole', 'quantitative easing', 'tapering', 'dovish', 'hawkish', 'rate hike', 'rate cut'],
                 'related_series': ['FEDFUNDS', 'DGS10', 'DGS2', 'T10Y3M'],
                 'related_assets': ['XLF', 'SPY', 'QQQ'],
                 'priority': 10,
                 'category': NewsCategory.FEDERAL_RESERVE
             },
             'employment': {
-                'keywords': ['unemployment', 'jobs report', 'payrolls', 'employment', 'labor market', 'hiring', 'jobless claims'],
+                'keywords': ['unemployment', 'jobs report', 'payrolls', 'employment', 'labor market', 'hiring', 'jobless claims', 'nonfarm payrolls', 'unemployment rate', 'job openings', 'labor shortage', 'wage growth', 'worker shortage', 'gig economy', 'remote work', 'work from home', 'labor unions'],
                 'related_series': ['UNRATE', 'PAYEMS', 'ICSA', 'AHETPI'],
                 'related_assets': ['XLY', 'SPY', 'IWM'],
                 'priority': 9,
                 'category': NewsCategory.EMPLOYMENT
             },
             'inflation': {
-                'keywords': ['inflation', 'cpi', 'consumer prices', 'ppi', 'price index', 'cost of living', 'deflation'],
+                'keywords': ['inflation', 'cpi', 'consumer prices', 'ppi', 'price index', 'cost of living', 'deflation', 'core inflation', 'price surge', 'rising prices', 'inflation data', 'price increases', 'disinflation', 'food prices', 'energy costs', 'housing costs'],
                 'related_series': ['CPIAUCSL', 'AHETPI'],
                 'related_assets': ['XLP', 'XLE'],
                 'priority': 9,
                 'category': NewsCategory.INFLATION
             },
             'gdp_growth': {
-                'keywords': ['gdp', 'economic growth', 'recession', 'expansion', 'gdp report', 'economic data'],
+                'keywords': ['gdp', 'economic growth', 'recession', 'expansion', 'gdp report', 'economic data', 'economic outlook', 'growth forecast', 'economic recovery', 'economic slowdown', 'business investment', 'consumer spending', 'productivity'],
                 'related_series': ['GDP', 'PERMIT', 'HOUST'],
                 'related_assets': ['SPY', 'XLI', 'QQQ'],
                 'priority': 8,
                 'category': NewsCategory.GDP_GROWTH
             },
             'market_volatility': {
-                'keywords': ['market volatility', 'vix', 'market crash', 'correction', 'market selloff', 'bear market', 'bull market'],
+                'keywords': ['market volatility', 'vix', 'market crash', 'correction', 'market selloff', 'bear market', 'bull market', 'stock market', 'market rally', 'market decline', 'trading halt', 'circuit breaker', 'market uncertainty', 'investor sentiment'],
                 'related_series': ['VIXCLS', 'TEDRATE'],
                 'related_assets': ['SPY', 'QQQ', 'VTI'],
                 'priority': 7,
                 'category': NewsCategory.MARKET_VOLATILITY
             },
             'corporate_earnings': {
-                'keywords': ['earnings report', 'quarterly earnings', 'corporate profits', 'earnings season', 'revenue'],
+                'keywords': ['earnings report', 'quarterly earnings', 'corporate profits', 'earnings season', 'revenue', 'earnings beat', 'earnings miss', 'guidance', 'profit margin', 'dividend', 'share buyback', 'corporate results', 'ceo', 'layoffs'],
                 'related_series': [],
                 'related_assets': ['SPY', 'QQQ'],
                 'priority': 6,
                 'category': NewsCategory.CORPORATE_EARNINGS
             },
             'geopolitical': {
-                'keywords': ['trade war', 'tariffs', 'sanctions', 'geopolitical', 'international trade', 'trade deal'],
+                'keywords': ['trade war', 'tariffs', 'sanctions', 'geopolitical', 'international trade', 'trade deal', 'china trade', 'brexit', 'election', 'political risk', 'foreign policy', 'diplomatic', 'global tensions', 'nato', 'ukraine', 'russia'],
                 'related_series': [],
                 'related_assets': ['SPY', 'EFA', 'EEM'],
                 'priority': 6,
                 'category': NewsCategory.GEOPOLITICAL
+            },
+            
+            # BROADER CATEGORIES (NEW)
+            'technology_disruption': {
+                'keywords': ['artificial intelligence', 'ai', 'machine learning', 'automation', 'robotics', 'cryptocurrency', 'bitcoin', 'blockchain', 'fintech', 'digital transformation', 'cloud computing', 'cybersecurity', 'data breach', 'tech regulation', 'social media', 'streaming', 'electric vehicles', 'autonomous vehicles'],
+                'related_series': [],
+                'related_assets': ['XLK', 'QQQ', 'ARKK'],
+                'priority': 8,
+                'category': NewsCategory.SECTOR_SPECIFIC
+            },
+            'supply_chain_logistics': {
+                'keywords': ['supply chain', 'logistics', 'shipping', 'container', 'freight', 'supply shortage', 'chip shortage', 'semiconductor', 'manufacturing', 'factory', 'production', 'inventory', 'warehouse', 'distribution', 'raw materials', 'commodities'],
+                'related_series': [],
+                'related_assets': ['XLI', 'FDX', 'UPS'],
+                'priority': 7,
+                'category': NewsCategory.COMMODITY_MARKETS
+            },
+            'energy_climate': {
+                'keywords': ['oil prices', 'crude oil', 'natural gas', 'energy crisis', 'opec', 'renewable energy', 'solar', 'wind', 'climate change', 'carbon', 'esg', 'sustainability', 'green energy', 'electric grid', 'pipeline', 'energy policy', 'carbon tax', 'emissions'],
+                'related_series': [],
+                'related_assets': ['XLE', 'ICLN', 'USO'],
+                'priority': 7,
+                'category': NewsCategory.COMMODITY_MARKETS
+            },
+            'consumer_social_trends': {
+                'keywords': ['consumer behavior', 'spending habits', 'millennials', 'gen z', 'social trends', 'lifestyle', 'health trends', 'fitness', 'wellness', 'streaming', 'gaming', 'e-commerce', 'online shopping', 'retail trends', 'food delivery', 'subscription', 'sharing economy'],
+                'related_series': ['AHETPI'],
+                'related_assets': ['XLY', 'AMZN', 'NFLX'],
+                'priority': 6,
+                'category': NewsCategory.GDP_GROWTH
+            },
+            'political_policy': {
+                'keywords': ['congress', 'senate', 'house', 'biden', 'trump', 'politics', 'legislation', 'bill', 'law', 'regulation', 'policy', 'government', 'stimulus', 'infrastructure', 'healthcare reform', 'tax policy', 'immigration', 'voting', 'midterm', 'campaign'],
+                'related_series': [],
+                'related_assets': ['SPY', 'VTI'],
+                'priority': 6,
+                'category': NewsCategory.GEOPOLITICAL
+            },
+            'social_movements': {
+                'keywords': ['protest', 'strike', 'labor dispute', 'union', 'social movement', 'demonstration', 'activism', 'civil rights', 'inequality', 'minimum wage', 'worker rights', 'social justice', 'diversity', 'pandemic', 'covid', 'public health', 'vaccine'],
+                'related_series': ['UNRATE', 'AHETPI'],
+                'related_assets': ['SPY', 'XLY'],
+                'priority': 5,
+                'category': NewsCategory.EMPLOYMENT
             }
         }
     
@@ -456,13 +502,16 @@ class NewsSeriesFetcher:
         return completeness
     
     def _is_economically_relevant(self, article: Dict[str, Any], category: str) -> bool:
-        """Determine if an article is economically relevant enough to store"""
+        """
+        Determine if an article is economically relevant enough to store.
+        LOWERED thresholds for broader collection - AI synthesis will handle connections.
+        """
         relevance_score = article.get('relevance_score', 0)
         quality_score = article.get('data_quality_score', 0)
         
-        # Minimum thresholds
-        min_relevance = Decimal('0.3')
-        min_quality = Decimal('0.4')
+        # LOWERED thresholds for hybrid expansion
+        min_relevance = Decimal('0.15')  # Lowered from 0.3
+        min_quality = Decimal('0.25')   # Lowered from 0.4
         
         return relevance_score >= min_relevance and quality_score >= min_quality
     
@@ -508,7 +557,13 @@ class NewsSeriesFetcher:
             'gdp_growth': 'long_term',       # GDP impacts are longer term
             'market_volatility': 'immediate', # Market events are immediate
             'corporate_earnings': 'short_term',
-            'geopolitical': 'medium_term'
+            'geopolitical': 'medium_term',
+            'technology_disruption': 'long_term',
+            'supply_chain_logistics': 'medium_term',
+            'energy_climate': 'medium_term',
+            'consumer_social_trends': 'short_term',
+            'political_policy': 'medium_term',
+            'social_movements': 'short_term'
         }
         return timeframes.get(category, 'medium_term')
     
