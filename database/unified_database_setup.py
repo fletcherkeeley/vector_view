@@ -419,6 +419,109 @@ class NewsTopicMapping(Base):
     )
 
 
+class NewsArticles(Base):
+    """
+    Full text storage for news articles with comprehensive metadata
+    Integrates with vector database through NewsTopicMapping bridge table
+    """
+    __tablename__ = "news_articles"
+
+    # Primary key
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, comment="Unique article identifier")
+    
+    # Article identification and source tracking
+    source_article_id = Column(VARCHAR(200), comment="Original article ID from News API")
+    url = Column(Text, nullable=False, comment="Original article URL")
+    url_hash = Column(VARCHAR(64), comment="SHA-256 hash of URL for deduplication")
+    
+    # Publication metadata
+    source_name = Column(VARCHAR(200), nullable=False, comment="News source name (e.g., 'Reuters', 'Bloomberg')")
+    source_domain = Column(VARCHAR(100), comment="Source domain (e.g., 'reuters.com')")
+    author = Column(VARCHAR(500), comment="Article author(s)")
+    published_at = Column(DateTime(timezone=True), nullable=False, comment="Original publication timestamp")
+    
+    # Article content
+    title = Column(VARCHAR(1000), nullable=False, comment="Article headline/title")
+    description = Column(Text, comment="Article summary/description from News API")
+    content = Column(Text, comment="Full article content")
+    content_length = Column(Integer, comment="Character length of full content")
+    
+    # Language and geographic information
+    language = Column(VARCHAR(10), default='en', comment="Article language code")
+    country = Column(VARCHAR(10), comment="Country of publication")
+    
+    # News API specific metadata
+    news_api_metadata = Column(JSONB, comment="Original metadata from News API")
+    
+    # Economic categorization and analysis
+    economic_categories = Column(JSONB, comment="List of economic categories this article relates to")
+    sentiment_score = Column(DECIMAL(5, 4), comment="Sentiment score (-1.0 to 1.0)")
+    relevance_score = Column(DECIMAL(5, 4), comment="Economic relevance score (0.0 to 1.0)")
+    
+    # Vector database integration
+    vector_db_collection = Column(VARCHAR(200), comment="Chroma collection containing this article's embeddings")
+    vector_db_document_id = Column(VARCHAR(200), comment="Document ID in vector database")
+    embedding_model_version = Column(VARCHAR(100), comment="Version of embedding model used")
+    
+    # Content processing flags
+    is_processed = Column(Boolean, default=False, comment="Whether article has been processed for embeddings")
+    is_categorized = Column(Boolean, default=False, comment="Whether economic categorization is complete")
+    has_embeddings = Column(Boolean, default=False, comment="Whether embeddings are stored in vector DB")
+    
+    # Data quality indicators
+    data_quality_score = Column(DECIMAL(3, 2), comment="Overall data quality score (0.00 to 1.00)")
+    content_completeness = Column(DECIMAL(3, 2), comment="Completeness of article content")
+    duplicate_probability = Column(DECIMAL(3, 2), comment="Probability this is a duplicate article")
+    
+    # Processing and error tracking
+    processing_attempts = Column(Integer, default=0, comment="Number of processing attempts")
+    last_processing_error = Column(Text, comment="Last error encountered during processing")
+    
+    # Related economic data
+    related_series_ids = Column(JSONB, comment="Economic series this article may impact")
+    related_market_assets = Column(JSONB, comment="Market assets this article may impact")
+    impact_timeframe = Column(VARCHAR(50), comment="Expected timeframe of market impact")
+    
+    # Audit fields
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+    processed_at = Column(DateTime(timezone=True), comment="When article was last processed for embeddings")
+    
+    # Constraints and indexes
+    __table_args__ = (
+        # Unique constraint on URL hash to prevent duplicates
+        UniqueConstraint('url_hash', name='uk_news_articles_url_hash'),
+        
+        # Performance indexes for common queries
+        Index('idx_news_articles_published_at', 'published_at'),
+        Index('idx_news_articles_source_name', 'source_name'),
+        Index('idx_news_articles_language', 'language'),
+        Index('idx_news_articles_processed', 'is_processed'),
+        Index('idx_news_articles_categorized', 'is_categorized'),
+        Index('idx_news_articles_has_embeddings', 'has_embeddings'),
+        Index('idx_news_articles_quality', 'data_quality_score'),
+        Index('idx_news_articles_relevance', 'relevance_score'),
+        
+        # Composite indexes for complex queries
+        Index('idx_news_articles_date_source', 'published_at', 'source_name'),
+        Index('idx_news_articles_quality_relevance', 'data_quality_score', 'relevance_score'),
+        Index('idx_news_articles_processing_status', 'is_processed', 'is_categorized', 'has_embeddings'),
+        
+        # Indexes for vector database integration
+        Index('idx_news_articles_vector_collection', 'vector_db_collection'),
+        Index('idx_news_articles_vector_doc_id', 'vector_db_document_id'),
+        
+        # Data quality constraints
+        CheckConstraint('data_quality_score >= 0.0 AND data_quality_score <= 1.0', name='ck_news_quality_score'),
+        CheckConstraint('content_completeness >= 0.0 AND content_completeness <= 1.0', name='ck_content_completeness'),
+        CheckConstraint('duplicate_probability >= 0.0 AND duplicate_probability <= 1.0', name='ck_duplicate_probability'),
+        CheckConstraint('sentiment_score >= -1.0 AND sentiment_score <= 1.0', name='ck_sentiment_range'),
+        CheckConstraint('relevance_score >= 0.0 AND relevance_score <= 1.0', name='ck_relevance_range'),
+        CheckConstraint('processing_attempts >= 0', name='ck_processing_attempts'),
+        CheckConstraint('content_length >= 0', name='ck_content_length'),
+    )
+
+
 # ============================================================================
 # SYNC AND MONITORING TABLES
 # ============================================================================
@@ -631,11 +734,11 @@ class DatabaseManager:
                 # Verify table creation
                 await self._verify_tables(conn)
                 
-                # Additional performance indexes
-                await self._create_tables_and_indexes(conn)
+                # Create additional performance indexes
+                await self._create_additional_indexes_safe(conn)
                 
-                # Insert initial reference data
-                await self._insert_reference_data()
+            # Insert initial reference data (separate transaction)
+            await self._insert_reference_data()
                 
             logger.info("Database setup completed successfully")
             return True
@@ -647,25 +750,7 @@ class DatabaseManager:
             logger.error(f"Unexpected error during table creation: {e}")
             return False
     
-    async def _create_tables_and_indexes(self, conn) -> None:
-        """
-        Create tables and basic indexes in one transaction
-        """
-        try:
-            # Create all tables first
-            await conn.run_sync(Base.metadata.create_all)
-            
-            logger.info("Database tables created successfully")
-            
-            # Verify table creation
-            await self._verify_tables(conn)
-            
-            # Create additional indexes WITHOUT CONCURRENTLY
-            await self._create_additional_indexes_safe(conn)
-            
-        except Exception as e:
-            logger.error(f"Error creating tables and indexes: {e}")
-            raise
+
     
     async def _create_additional_indexes_safe(self, conn) -> None:
         """
@@ -674,23 +759,27 @@ class DatabaseManager:
         try:
             from sqlalchemy import text
             
-            # Simple indexes without CONCURRENTLY
+            # Simple indexes without CONCURRENTLY - create one at a time with error handling
             additional_indexes = [
-                "CREATE INDEX IF NOT EXISTS idx_observations_date_series_value ON time_series_observations (observation_date DESC, series_id, value)",
-                "CREATE INDEX IF NOT EXISTS idx_correlations_latest ON series_correlations (primary_series_id, secondary_series_id, calculation_date DESC)",  
-                "CREATE INDEX IF NOT EXISTS idx_sync_log_failures ON data_sync_log (source_type, success, sync_start_time DESC)",
-                "CREATE INDEX IF NOT EXISTS idx_news_topics_active_priority ON news_topic_mapping (is_active, priority_level DESC)",
-                "CREATE INDEX IF NOT EXISTS idx_health_metrics_latest ON system_health_metrics (metric_date DESC, metric_timestamp DESC)",
+                ("News Articles Date Quality", "CREATE INDEX IF NOT EXISTS idx_news_articles_date_quality ON news_articles (published_at DESC, data_quality_score DESC)"),
+                ("News Articles Processing Queue", "CREATE INDEX IF NOT EXISTS idx_news_articles_processing_queue ON news_articles (is_processed, processing_attempts, created_at)"),
+                ("Observations Date Series Value", "CREATE INDEX IF NOT EXISTS idx_observations_date_series_value ON time_series_observations (observation_date DESC, series_id, value)"),
+                ("Correlations Latest", "CREATE INDEX IF NOT EXISTS idx_correlations_latest ON series_correlations (primary_series_id, secondary_series_id, calculation_date DESC)"),
+                ("Sync Log Failures", "CREATE INDEX IF NOT EXISTS idx_sync_log_failures ON data_sync_log (source_type, success, sync_start_time DESC)"),
+                ("News Topics Active Priority", "CREATE INDEX IF NOT EXISTS idx_news_topics_active_priority ON news_topic_mapping (is_active, priority_level DESC)"),
+                ("Health Metrics Latest", "CREATE INDEX IF NOT EXISTS idx_health_metrics_latest ON system_health_metrics (metric_date DESC, metric_timestamp DESC)"),
             ]
             
-            for index_sql in additional_indexes:
+            for index_name, index_sql in additional_indexes:
                 try:
+                    logger.info(f"Creating index: {index_name}")
                     await conn.execute(text(index_sql))
-                    logger.debug(f"Created index: {index_sql[:50]}...")
+                    logger.debug(f"✅ Created index: {index_name}")
                 except Exception as e:
-                    logger.warning(f"Index creation warning: {e}")
+                    logger.warning(f"Index creation warning for {index_name}: {e}")
+                    # Continue with other indexes even if one fails
             
-            logger.info("Additional indexes created successfully")
+            logger.info("Additional indexes creation completed")
             
         except Exception as e:
             logger.error(f"Error creating additional indexes: {e}")
@@ -702,8 +791,8 @@ class DatabaseManager:
         """
         expected_tables = [
             'data_series', 'market_assets', 'time_series_observations',
-            'series_correlations', 'news_topic_mapping', 'data_sync_log',
-            'system_health_metrics'
+            'series_correlations', 'news_topic_mapping', 'news_articles', 
+            'data_sync_log', 'system_health_metrics'
         ]
         
         try:
