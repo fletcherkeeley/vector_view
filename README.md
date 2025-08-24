@@ -1,4 +1,4 @@
-# AI Financial Intelligence Platform
+# Vector View - AI Financial Intelligence Platform
 
 An intelligent financial analysis platform that synthesizes economic data, market movements, and news sentiment into actionable daily briefings powered by AI agents.
 
@@ -123,70 +123,108 @@ Transform scattered financial information into coherent, AI-synthesized intellig
 - **market_assets**: Stock/ETF metadata and classifications
 - **sync_logs**: Data ingestion monitoring and quality tracking
 
-### Vector Database (Semantic Data)
-- **news_embeddings**: Semantic embeddings of news articles
-- **topic_clusters**: Related news topic groupings
-- **sentiment_vectors**: Sentiment-aware news representations
+### ChromaDB (Semantic Data) ✅
+- **news_embeddings**: 929 news articles with semantic embeddings
+- **economic_indicators**: Economic data embeddings for correlation
+- **semantic_search**: Cross-domain semantic search capabilities
 
 ### Bridge Tables
 - **news_topic_mapping**: Links news categories to economic indicators
 - **correlation_triggers**: News events that correlate with market moves
+
+## 📊 Current Implementation Status
+
+### ✅ **Completed Components**
+- **Database Infrastructure**: PostgreSQL with 441,343 time series observations
+- **Data Ingestion**: FRED (67k observations), Yahoo Finance (374k observations), News API (940 articles)
+- **Semantic Search**: ChromaDB with 929 embedded news articles
+- **Monitoring**: Streamlit dashboard for data pipeline monitoring
+- **Automation**: Cron job setup for daily data updates
+
+### 🚧 **In Development**
+- **AI Agents**: Core agent architecture and implementation
+- **Correlation Engine**: Cross-domain signal detection
+- **Daily Briefings**: AI-generated market intelligence
+
+### 📋 **Planned Features**
+- **Interactive Frontend**: User-facing Streamlit application
+- **Chatbot Interface**: Natural language query processing
+- **Advanced Analytics**: Custom analysis and alerting
 
 ## 🚀 Getting Started
 
 ### Prerequisites
 - Python 3.9+
 - PostgreSQL 15+
-- Vector database (Pinecone/Chroma)
+- ChromaDB (included)
+- Docker & Docker Compose
 - API keys: FRED, News API
 
 ### Quick Setup
 ```bash
 # 1. Clone and setup environment
 git clone <repository>
-cd ai-financial-intelligence
+cd vector-view
 python -m venv venv
 source venv/bin/activate  # or `venv\Scripts\activate` on Windows
 pip install -r requirements.txt
 
 # 2. Start database
-docker-compose up -d postgres
+docker-compose up -d
 
 # 3. Initialize database schema
-python database/setup_database.py
+python database/unified_database_setup.py
 
 # 4. Configure API credentials
 cp .env.example .env
 # Edit .env with your API keys
 
 # 5. Run initial data ingestion
-python ingestion/run_initial_sync.py
+python ingestion/fred_bulk_loader.py
+python ingestion/yahoo_bulk_loader.py
+python ingestion/news_historical_backfill.py
 
-# 6. Start the application
-streamlit run app/main.py
+# 6. Start monitoring dashboard
+streamlit run ingestion/monitoring_dashboard.py
 ```
 
-## 📁 Project Structure
+## 📁 Current Project Structure
 
 ```
-ai-financial-intelligence/
+vector-view/
 ├── README.md
 ├── requirements.txt
 ├── docker-compose.yml
 ├── .env.example
+├── check_data.py                    # Data validation utility
 │
 ├── database/
-│   ├── unified_database_setup.py    # Complete schema definition
-│   └── setup_database.py            # User-friendly setup script
+│   ├── unified_database_setup.py    # Complete schema definition ✅
+│   └── backups/                     # Database backup storage
 │
-├── ingestion/
-│   ├── fred_client.py               # FRED API integration
-│   ├── yahoo_client.py              # Yahoo Finance integration
-│   ├── news_client.py               # News API integration
-│   ├── vector_db_client.py          # Vector database operations
-│   └── orchestrator.py              # Data ingestion coordination
+├── ingestion/                       # Data ingestion pipeline ✅
+│   ├── fred_bulk_loader.py          # FRED API bulk historical data
+│   ├── fred_daily_updater.py        # FRED daily incremental updates
+│   ├── yahoo_bulk_loader.py         # Yahoo Finance bulk historical data
+│   ├── yahoo_daily_updater.py       # Yahoo Finance daily updates
+│   ├── news_historical_backfill.py  # News API historical data
+│   ├── news_daily_updater.py        # News API daily updates
+│   ├── news_daily_scheduler.py      # News update scheduling
+│   ├── monitoring_dashboard.py      # Streamlit monitoring interface ✅
+│   └── [various progress/stats files]
 │
-├── agents/
+├── semantic/                        # Semantic search & embeddings ✅
+│   ├── embedding_pipeline.py        # News article embedding generation
+│   ├── semantic_search.py           # ChromaDB search interface
+│   ├── chroma_db/                   # ChromaDB vector storage
+│   └── debug_news_articles.py       # Debugging utilities
+│
+├── chroma_db/                       # ChromaDB persistent storage ✅
+│
+├── docs/
+│   └── data_sources.md              # Data source documentation
+│
+├── agents/                          # AI Agents (Planned)
 │   ├── base_agent.py                # Base agent class
 │   ├── orchestration_agent.py       # Master orchestrator
 │   ├── economic_agent.py            # Economic analysis specialist
@@ -194,31 +232,20 @@ ai-financial-intelligence/
 │   ├── market_agent.py              # Market analysis specialist
 │   └── synthesis_agent.py           # Daily briefing generator
 │
-├── bridge/
+├── bridge/                          # Cross-domain correlation (Planned)
 │   ├── correlation_engine.py        # Economic-news correlation
 │   ├── topic_mapper.py              # News topic classification
 │   └── context_builder.py           # Cross-dataset context creation
 │
-├── app/
+├── app/                             # Frontend application (Planned)
 │   ├── main.py                      # Streamlit main application
 │   ├── components/
-│   │   ├── briefing_display.py      # Daily briefing UI
-│   │   ├── chatbot_interface.py     # Interactive chat component
-│   │   └── data_visualizations.py   # Charts and graphs
 │   └── utils/
-│       ├── session_manager.py       # User session handling
-│       └── query_processor.py       # Natural language query processing
 │
-├── config/
-│   ├── settings.py                  # Application configuration
-│   ├── api_config.py                # API client configurations
-│   └── agent_config.py              # AI agent configurations
-│
-└── tests/
-    ├── test_database.py
-    ├── test_ingestion.py
-    ├── test_agents.py
-    └── test_integration.py
+└── setup scripts/
+    ├── setup_daily_sync.sh          # Daily data sync automation
+    ├── setup_news_daily_cron.sh     # News update cron setup
+    └── setup_daily_news_cron.sh     # Alternative news cron setup
 ```
 
 ## 🎯 Key Features
@@ -237,8 +264,8 @@ ai-financial-intelligence/
 
 ## 🔮 Roadmap
 
-- [ ] **Phase 1**: Core data ingestion and database setup
-- [ ] **Phase 2**: Basic AI agents and correlation engine
+- [x] **Phase 1**: Core data ingestion and database setup ✅
+- [ ] **Phase 2**: AI agents and correlation engine (In Progress)
 - [ ] **Phase 3**: Streamlit frontend with daily briefings
 - [ ] **Phase 4**: Interactive chatbot and deep-dive queries
 - [ ] **Phase 5**: Advanced features (alerts, custom analysis, API endpoints)

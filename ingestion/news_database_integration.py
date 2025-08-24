@@ -58,11 +58,11 @@ class NewsDatabaseIntegration:
         Args:
             database_url: PostgreSQL connection string
         """
-        self.database_url = database_url
+        self.database_url = database_url.replace('postgresql://', 'postgresql+asyncpg://')
         self.engine = None
         self.AsyncSessionLocal = None
-        
-        logger.info("News Database Integration initialized")
+        self.logger = logging.getLogger(__name__)
+        self.logger.info("News Database Integration initialized")
     
     async def initialize(self) -> bool:
         """

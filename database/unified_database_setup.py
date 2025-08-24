@@ -675,8 +675,11 @@ class DatabaseManager:
         Initialize the database engine with connection pooling and error handling
         """
         try:
+            # Ensure we use asyncpg driver for async operations
+            database_url = self.database_url.replace('postgresql://', 'postgresql+asyncpg://')
+            
             self.engine = create_async_engine(
-                self.database_url,
+                database_url,
                 echo=False,  # Set to True for SQL debugging
                 pool_size=10,
                 max_overflow=20,

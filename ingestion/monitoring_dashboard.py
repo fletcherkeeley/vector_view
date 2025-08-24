@@ -1,83 +1,52 @@
 """
-Unified Data Pipeline Monitoring Dashboard
+Vector View Monitoring Dashboard
 
-Comprehensive Streamlit dashboard for monitoring the AI Financial Intelligence Platform.
-Provides real-time visibility into data ingestion, database health, and system performance.
-
-Key Features:
-- Database statistics and health metrics
-- Data ingestion monitoring (FRED + Yahoo Finance)
-- Sync operation tracking and error analysis
-- Data freshness and quality indicators
-- System performance metrics
-- Interactive charts and visualizations
-
-Usage:
-    streamlit run monitoring_dashboard.py
+Streamlined monitoring for PostgreSQL and ChromaDB databases.
+Shows database sizes, table metrics, and sync operation logs.
 """
 
 import streamlit as st
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import asyncio
-from datetime import datetime, timezone, date, timedelta
+from datetime import datetime, timezone, timedelta
 import sys
 from pathlib import Path
 import os
+import chromadb
+from chromadb.config import Settings
 
-# Add paths for imports FIRST
-# Use os.getcwd() to understand where we actually are
+# Setup paths
 current_working_dir = Path(os.getcwd())
-
-# Explicitly construct the path to the database directory
-# If we're in /home/lab/projects/vector-view/ingestion, we need to go up one level
 if current_working_dir.name == "ingestion":
     project_root = current_working_dir.parent
 else:
-    # We might be running from project root
     project_root = current_working_dir
 
 database_dir = project_root / "database"
-
 sys.path.insert(0, str(project_root))
 sys.path.insert(0, str(database_dir))
-
-# Comment out the stop for now to see the debug info
-# if not (database_dir / "unified_database_setup.py").exists():
-#     st.error(f"Database setup file not found at: {database_dir / 'unified_database_setup.py'}")
-#     st.stop()
 
 from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy import select, func, and_, desc, text, Integer
-import logging
+from sqlalchemy import select, func, desc, text
 
-# Import our database models
+# Import database models
 try:
     from unified_database_setup import (
         DataSeries, MarketAssets, TimeSeriesObservation, DataSyncLog, 
-        SystemHealthMetrics, DataSourceType, FrequencyType
+        NewsArticles, DataSourceType
     )
 except ImportError as e:
     st.error(f"Failed to import database models: {e}")
     st.stop()
 
-# Load environment variables
 load_dotenv()
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# Page configuration
 st.set_page_config(
-    page_title="Financial Intelligence Platform - Monitoring",
-    page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    page_title="Vector View - Database Monitor",
+    page_icon="🗄️",
+    layout="wide"
 )
 
 
@@ -92,76 +61,127 @@ class DatabaseMonitor:
     async def initialize(self):
         """Initialize database connection"""
         try:
-            self.engine = create_async_engine(
-                self.database_url,
-                echo=False,
-                pool_size=5,
-                max_overflow=10,
-                pool_pre_ping=True
-            )
-            
+            self.engine = create_async_engine(self.database_url, echo=False)
             self.AsyncSessionLocal = sessionmaker(
-                bind=self.engine,
-                class_=AsyncSession,
-                expire_on_commit=False
+                bind=self.engine, class_=AsyncSession, expire_on_commit=False
             )
-            
             return True
         except Exception as e:
             st.error(f"Database connection failed: {e}")
             return False
     
-    async def get_database_overview(self):
-        """Get high-level database statistics"""
+    async def get_database_metrics(self):
+        """Get PostgreSQL database size and table metrics"""
         try:
             async with self.AsyncSessionLocal() as session:
-                # Count series by source
-                fred_count = await session.execute(
-                    select(func.count(DataSeries.series_id))
-                    .where(DataSeries.source_type == DataSourceType.FRED)
-                )
-                
-                yahoo_count = await session.execute(
-                    select(func.count(DataSeries.series_id))
-                    .where(DataSeries.source_type == DataSourceType.YAHOO_FINANCE)
-                )
-                
-                # Count total observations
-                total_obs = await session.execute(
-                    select(func.count(TimeSeriesObservation.id))
-                )
-                
-                fred_obs = await session.execute(
-                    select(func.count(TimeSeriesObservation.id))
-                    .join(DataSeries)
-                    .where(DataSeries.source_type == DataSourceType.FRED)
-                )
-                
-                yahoo_obs = await session.execute(
-                    select(func.count(TimeSeriesObservation.id))
-                    .join(DataSeries)
-                    .where(DataSeries.source_type == DataSourceType.YAHOO_FINANCE)
-                )
-                
                 # Database size
-                db_size = await session.execute(
+                db_size_result = await session.execute(
                     text("SELECT pg_size_pretty(pg_database_size(current_database())) as size")
+                )
+                db_size = db_size_result.scalar()
+                
+                # Table sizes and row counts
+                table_metrics = await session.execute(text("""
+                    SELECT 
+                        schemaname,
+                        relname as tablename,
+                        pg_size_pretty(pg_total_relation_size(schemaname||'.'||relname)) as size,
+                        n_tup_ins as total_rows,
+                        last_vacuum,
+                        last_analyze
+                    FROM pg_stat_user_tables 
+                    ORDER BY pg_total_relation_size(schemaname||'.'||relname) DESC
+                """))
+                
+                tables = []
+                for row in table_metrics:
+                    tables.append({
+                        'table': f"{row[0]}.{row[1]}",
+                        'size': row[2],
+                        'rows': row[3] or 0,
+                        'last_vacuum': row[4],
+                        'last_analyze': row[5]
+                    })
+                
+                # Yahoo Finance stocks breakdown
+                yahoo_stocks = await session.execute(text("""
+                    SELECT 
+                        ds.series_id,
+                        ds.title,
+                        COUNT(tso.id) as observation_count,
+                        MIN(tso.observation_date) as earliest_date,
+                        MAX(tso.observation_date) as latest_date
+                    FROM data_series ds
+                    LEFT JOIN time_series_observations tso ON ds.series_id = tso.series_id
+                    WHERE ds.source_type = 'YAHOO_FINANCE'
+                    GROUP BY ds.series_id, ds.title
+                    ORDER BY observation_count DESC
+                    LIMIT 10
+                """))
+                
+                # FRED indicators breakdown
+                fred_indicators = await session.execute(text("""
+                    SELECT 
+                        ds.series_id,
+                        ds.title,
+                        COUNT(tso.id) as observation_count,
+                        MIN(tso.observation_date) as earliest_date,
+                        MAX(tso.observation_date) as latest_date
+                    FROM data_series ds
+                    LEFT JOIN time_series_observations tso ON ds.series_id = tso.series_id
+                    WHERE ds.source_type = 'FRED'
+                    GROUP BY ds.series_id, ds.title
+                    ORDER BY observation_count DESC
+                """))
+                
+                # News categories breakdown
+                news_categories = await session.execute(text("""
+                    SELECT 
+                        economic_categories,
+                        COUNT(*) as article_count,
+                        SUM(CASE WHEN has_embeddings THEN 1 ELSE 0 END) as embedded_count,
+                        MIN(published_at) as earliest_date,
+                        MAX(published_at) as latest_date
+                    FROM news_articles
+                    WHERE economic_categories IS NOT NULL
+                    GROUP BY economic_categories
+                    ORDER BY article_count DESC
+                """))
+                
+                # Overall stats
+                news_total = await session.execute(select(func.count(NewsArticles.id)))
+                news_embedded = await session.execute(
+                    select(func.count(NewsArticles.id)).where(NewsArticles.has_embeddings == True)
+                )
+                latest_observation = await session.execute(
+                    select(func.max(TimeSeriesObservation.observation_date))
+                )
+                latest_news = await session.execute(
+                    select(func.max(NewsArticles.published_at))
+                )
+                latest_embedding_run = await session.execute(
+                    select(func.max(NewsArticles.updated_at))
+                    .where(NewsArticles.has_embeddings == True)
                 )
                 
                 return {
-                    'fred_series': fred_count.scalar() or 0,
-                    'yahoo_series': yahoo_count.scalar() or 0,
-                    'total_observations': total_obs.scalar() or 0,
-                    'fred_observations': fred_obs.scalar() or 0,
-                    'yahoo_observations': yahoo_obs.scalar() or 0,
-                    'database_size': db_size.scalar() or 'Unknown'
+                    'database_size': db_size,
+                    'tables': tables,
+                    'yahoo_stocks': [dict(row._mapping) for row in yahoo_stocks],
+                    'fred_indicators': [dict(row._mapping) for row in fred_indicators],
+                    'news_categories': [dict(row._mapping) for row in news_categories],
+                    'news_total': news_total.scalar() or 0,
+                    'news_embedded': news_embedded.scalar() or 0,
+                    'latest_observation': latest_observation.scalar(),
+                    'latest_news': latest_news.scalar(),
+                    'latest_embedding_run': latest_embedding_run.scalar()
                 }
                 
         except Exception as e:
-            st.error(f"Error getting database overview: {e}")
+            st.error(f"Error getting database metrics: {e}")
             return {}
     
-    async def get_recent_sync_activity(self, days: int = 7):
+    async def get_sync_logs(self, days: int = 2):
         """Get recent sync operations"""
         try:
             async with self.AsyncSessionLocal() as session:
@@ -171,7 +191,7 @@ class DatabaseMonitor:
                     select(DataSyncLog)
                     .where(DataSyncLog.sync_start_time >= cutoff_date)
                     .order_by(desc(DataSyncLog.sync_start_time))
-                    .limit(100)
+                    .limit(1000)
                 )
                 
                 sync_logs = result.scalars().all()
@@ -194,443 +214,243 @@ class DatabaseMonitor:
                 return logs_data
                 
         except Exception as e:
-            st.error(f"Error getting sync activity: {e}")
+            st.error(f"Error getting sync logs: {e}")
             return []
-    
-    async def get_data_freshness(self):
-        """Get data freshness metrics"""
-        try:
-            async with self.AsyncSessionLocal() as session:
-                # Get latest observation for each source type
-                fred_latest = await session.execute(
-                    select(func.max(TimeSeriesObservation.observation_date))
-                    .join(DataSeries)
-                    .where(DataSeries.source_type == DataSourceType.FRED)
-                )
-                
-                yahoo_latest = await session.execute(
-                    select(func.max(TimeSeriesObservation.observation_date))
-                    .join(DataSeries)
-                    .where(DataSeries.source_type == DataSourceType.YAHOO_FINANCE)
-                )
-                
-                # Count stale data (older than 7 days)
-                cutoff_date = date.today() - timedelta(days=7)
-                
-                stale_series = await session.execute(
-                    select(func.count(DataSeries.series_id))
-                    .join(TimeSeriesObservation)
-                    .where(TimeSeriesObservation.observation_date < cutoff_date)
-                    .group_by(DataSeries.series_id)
-                )
-                
-                return {
-                    'fred_latest_date': fred_latest.scalar(),
-                    'yahoo_latest_date': yahoo_latest.scalar(),
-                    'stale_series_count': len(stale_series.fetchall())
-                }
-                
-        except Exception as e:
-            st.error(f"Error getting data freshness: {e}")
-            return {}
-    
-    async def get_sync_performance_metrics(self):
-        """Get sync performance over time"""
-        try:
-            async with self.AsyncSessionLocal() as session:
-                # Get daily sync stats for the last 30 days
-                cutoff_date = datetime.now(timezone.utc) - timedelta(days=30)
-                
-                result = await session.execute(
-                    select(
-                        func.date(DataSyncLog.sync_start_time).label('sync_date'),
-                        DataSyncLog.source_type,
-                        func.count(DataSyncLog.id).label('total_syncs'),
-                        func.sum(DataSyncLog.success.cast(Integer)).label('successful_syncs'),
-                        func.avg(DataSyncLog.sync_duration_ms).label('avg_duration_ms'),
-                        func.sum(DataSyncLog.records_added).label('total_records_added')
-                    )
-                    .where(DataSyncLog.sync_start_time >= cutoff_date)
-                    .group_by(
-                        func.date(DataSyncLog.sync_start_time),
-                        DataSyncLog.source_type
-                    )
-                    .order_by(func.date(DataSyncLog.sync_start_time))
-                )
-                
-                results = result.fetchall()
-                return [
-                    {
-                        'sync_date': row[0],
-                        'source_type': str(row[1]),
-                        'total_syncs': row[2],
-                        'successful_syncs': row[3],
-                        'avg_duration_ms': float(row[4]) if row[4] else 0,
-                        'total_records_added': row[5] or 0
-                    } 
-                    for row in results
-                ]
-                
-        except Exception as e:
-            st.error(f"Error getting sync performance: {e}")
-            return []
-    
-    async def get_asset_type_breakdown(self):
-        """Get breakdown of assets by type"""
-        try:
-            async with self.AsyncSessionLocal() as session:
-                result = await session.execute(
-                    select(
-                        MarketAssets.asset_type,
-                        func.count(MarketAssets.series_id).label('count'),
-                        func.avg(MarketAssets.market_cap).label('avg_market_cap')
-                    )
-                    .group_by(MarketAssets.asset_type)
-                )
-                
-                results = result.fetchall()
-                return [
-                    {
-                        'asset_type': str(row[0]),
-                        'count': row[1],
-                        'avg_market_cap': float(row[2]) if row[2] else 0
-                    }
-                    for row in results
-                ]
-                
-        except Exception as e:
-            st.error(f"Error getting asset breakdown: {e}")
-            return []
-    
-    async def close(self):
-        """Close database connections"""
-        if self.engine:
-            await self.engine.dispose()
 
 
-# Cache the database monitor
+class ChromaDBMonitor:
+    """Handles ChromaDB monitoring"""
+    
+    def __init__(self, chroma_path: str):
+        self.chroma_path = chroma_path
+        self.client = None
+    
+    def initialize(self):
+        """Initialize ChromaDB connection"""
+        try:
+            self.client = chromadb.PersistentClient(
+                path=self.chroma_path,
+                settings=Settings(anonymized_telemetry=False)
+            )
+            return True
+        except Exception as e:
+            st.error(f"ChromaDB connection failed: {e}")
+            return False
+    
+    def get_chroma_metrics(self):
+        """Get ChromaDB collection metrics"""
+        try:
+            collections = self.client.list_collections()
+            metrics = []
+            
+            for collection in collections:
+                count = collection.count()
+                # Get sample metadata to check last update
+                try:
+                    sample = collection.peek(limit=1)
+                    last_update = None
+                    if sample['metadatas'] and sample['metadatas'][0]:
+                        last_update = sample['metadatas'][0].get('created_at')
+                except:
+                    last_update = None
+                
+                metrics.append({
+                    'collection': collection.name,
+                    'documents': count,
+                    'last_update': last_update
+                })
+            
+            return metrics
+        except Exception as e:
+            st.error(f"Error getting ChromaDB metrics: {e}")
+            return []
+
+
+# Main dashboard functions
 @st.cache_resource
 def get_database_monitor():
-    database_url = os.getenv('DATABASE_URL', 'postgresql+psycopg://postgres:fred_password@localhost:5432/postgres')
+    """Get cached database monitor"""
+    database_url = os.getenv('DATABASE_URL')
+    if not database_url:
+        st.error("DATABASE_URL not found in environment variables")
+        return None
     return DatabaseMonitor(database_url)
 
+@st.cache_resource
+def get_chroma_monitor():
+    """Get cached ChromaDB monitor"""
+    chroma_path = os.path.join(project_root, "chroma_db")
+    return ChromaDBMonitor(chroma_path)
 
-async def load_dashboard_data():
-    """Load all dashboard data asynchronously"""
-    monitor = get_database_monitor()
+async def main():
+    """Main dashboard function"""
+    st.title("🗄️ Vector View Database Monitor")
+    st.markdown("---")
     
-    if not await monitor.initialize():
-        return None
+    # Initialize monitors
+    db_monitor = get_database_monitor()
+    chroma_monitor = get_chroma_monitor()
     
-    try:
-        # Load all data concurrently
-        overview_task = monitor.get_database_overview()
-        sync_activity_task = monitor.get_recent_sync_activity(7)
-        freshness_task = monitor.get_data_freshness()
-        performance_task = monitor.get_sync_performance_metrics()
-        asset_breakdown_task = monitor.get_asset_type_breakdown()
-        
-        overview = await overview_task
-        sync_activity = await sync_activity_task
-        freshness = await freshness_task
-        performance = await performance_task
-        asset_breakdown = await asset_breakdown_task
-        
-        return {
-            'overview': overview,
-            'sync_activity': sync_activity,
-            'freshness': freshness,
-            'performance': performance,
-            'asset_breakdown': asset_breakdown
-        }
-    
-    finally:
-        await monitor.close()
-
-
-def render_overview_metrics(data):
-    """Render overview metrics cards"""
-    if not data or 'overview' not in data:
-        st.error("No overview data available")
+    if not db_monitor or not await db_monitor.initialize():
+        st.error("Failed to connect to PostgreSQL")
         return
     
-    overview = data['overview']
+    if not chroma_monitor.initialize():
+        st.error("Failed to connect to ChromaDB")
+        return
     
-    # Create metrics columns
+    # Top metrics row
     col1, col2, col3, col4 = st.columns(4)
     
+    # Get database metrics
+    db_metrics = await db_monitor.get_database_metrics()
+    chroma_metrics = chroma_monitor.get_chroma_metrics()
+    
     with col1:
-        st.metric(
-            label="📊 Total Data Series",
-            value=f"{overview.get('fred_series', 0) + overview.get('yahoo_series', 0):,}",
-            delta=f"FRED: {overview.get('fred_series', 0)} | Yahoo: {overview.get('yahoo_series', 0)}"
-        )
+        st.metric("PostgreSQL Size", db_metrics.get('database_size', 'Unknown'))
     
     with col2:
-        st.metric(
-            label="🗃️ Total Observations",
-            value=f"{overview.get('total_observations', 0):,}",
-            delta=f"Economic: {overview.get('fred_observations', 0):,} | Market: {overview.get('yahoo_observations', 0):,}"
-        )
+        st.metric("News Articles", f"{db_metrics.get('news_total', 0):,}")
     
     with col3:
-        st.metric(
-            label="💾 Database Size",
-            value=overview.get('database_size', 'Unknown'),
-            delta="PostgreSQL"
-        )
+        st.metric("Articles Embedded", f"{db_metrics.get('news_embedded', 0):,}")
     
     with col4:
-        # Calculate data freshness
-        freshness = data.get('freshness', {})
-        fred_latest = freshness.get('fred_latest_date')
-        yahoo_latest = freshness.get('yahoo_latest_date')
-        
-        if fred_latest and yahoo_latest:
-            latest_date = max(fred_latest, yahoo_latest)
-            days_old = (date.today() - latest_date).days
-            freshness_status = "🟢 Fresh" if days_old <= 1 else f"🟡 {days_old} days old"
-        else:
-            freshness_status = "❓ Unknown"
-        
-        st.metric(
-            label="🔄 Data Freshness",
-            value=freshness_status,
-            delta=f"Latest: {latest_date}" if 'latest_date' in locals() else "No data"
-        )
-
-
-def render_sync_activity_chart(data):
-    """Render sync activity visualization"""
-    if not data or 'sync_activity' not in data:
-        st.warning("No sync activity data available")
-        return
+        total_vectors = sum(m['documents'] for m in chroma_metrics)
+        st.metric("Vector Documents", f"{total_vectors:,}")
     
-    sync_logs = data['sync_activity']
-    if not sync_logs:
-        st.info("No recent sync activity found")
-        return
+    st.markdown("---")
     
-    df = pd.DataFrame(sync_logs)
-    df['sync_start_time'] = pd.to_datetime(df['sync_start_time'])
-    df['date'] = df['sync_start_time'].dt.date
+    # Data breakdown sections
+    st.subheader("📈 Yahoo Finance Stocks")
+    if db_metrics.get('yahoo_stocks'):
+        yahoo_df = pd.DataFrame(db_metrics['yahoo_stocks'])
+        yahoo_df['date_range'] = yahoo_df['earliest_date'].astype(str) + ' to ' + yahoo_df['latest_date'].astype(str)
+        display_yahoo = yahoo_df[['series_id', 'title', 'observation_count', 'date_range']].copy()
+        display_yahoo.columns = ['Symbol', 'Company', 'Observations', 'Date Range']
+        st.dataframe(display_yahoo, use_container_width=True)
+    else:
+        st.info("No Yahoo Finance data available")
     
-    # Success rate by source type
-    success_by_source = df.groupby(['source_type', 'success']).size().reset_index(name='count')
-    success_by_source['success'] = success_by_source['success'].map({True: 'Success', False: 'Failed'})
-    
-    fig = px.bar(
-        success_by_source,
-        x='source_type',
-        y='count',
-        color='success',
-        title="📈 Sync Success Rate by Data Source (Last 7 Days)",
-        labels={'count': 'Number of Syncs', 'success': 'Status'},
-        color_discrete_map={'Success': '#2E8B57', 'Failed': '#DC143C'}
-    )
-    
-    st.plotly_chart(fig, use_container_width=True)
-
-
-def render_performance_trends(data):
-    """Render performance trends over time"""
-    if not data or 'performance' not in data:
-        st.warning("No performance data available")
-        return
-    
-    performance = data['performance']
-    if not performance:
-        st.info("No performance metrics found")
-        return
-    
-    df = pd.DataFrame(performance)
-    df['sync_date'] = pd.to_datetime(df['sync_date'])
-    df['source_type'] = df['source_type'].str.replace('DataSourceType.', '')
-    
-    # Create subplots
-    fig = make_subplots(
-        rows=2, cols=2,
-        subplot_titles=('Daily Sync Count', 'Success Rate', 'Avg Duration (ms)', 'Records Added'),
-        specs=[[{"secondary_y": False}, {"secondary_y": False}],
-               [{"secondary_y": False}, {"secondary_y": False}]]
-    )
-    
-    # Group by source type for different colors
-    for source in df['source_type'].unique():
-        source_data = df[df['source_type'] == source]
-        
-        # Daily sync count
-        fig.add_trace(
-            go.Scatter(x=source_data['sync_date'], y=source_data['total_syncs'], 
-                      name=f'{source} - Syncs', line=dict(width=2)),
-            row=1, col=1
-        )
-        
-        # Success rate
-        success_rate = (source_data['successful_syncs'] / source_data['total_syncs'] * 100).fillna(0)
-        fig.add_trace(
-            go.Scatter(x=source_data['sync_date'], y=success_rate,
-                      name=f'{source} - Success %', line=dict(width=2)),
-            row=1, col=2
-        )
-        
-        # Average duration
-        fig.add_trace(
-            go.Scatter(x=source_data['sync_date'], y=source_data['avg_duration_ms'],
-                      name=f'{source} - Duration', line=dict(width=2)),
-            row=2, col=1
-        )
-        
-        # Records added
-        fig.add_trace(
-            go.Scatter(x=source_data['sync_date'], y=source_data['total_records_added'],
-                      name=f'{source} - Records', line=dict(width=2)),
-            row=2, col=2
-        )
-    
-    fig.update_layout(height=600, title_text="📊 Performance Trends (Last 30 Days)")
-    st.plotly_chart(fig, use_container_width=True)
-
-
-def render_asset_breakdown(data):
-    """Render asset type breakdown"""
-    if not data or 'asset_breakdown' not in data:
-        st.warning("No asset breakdown data available")
-        return
-    
-    breakdown = data['asset_breakdown']
-    if not breakdown:
-        st.info("No asset data found")
-        return
-    
-    df = pd.DataFrame(breakdown)
-    df['asset_type'] = df['asset_type'].str.replace('AssetType.', '')
+    st.markdown("---")
     
     col1, col2 = st.columns(2)
     
     with col1:
-        # Asset count pie chart
-        fig_pie = px.pie(
-            df, 
-            values='count', 
-            names='asset_type',
-            title="🏢 Assets by Type"
-        )
-        st.plotly_chart(fig_pie, use_container_width=True)
+        st.subheader("🏛️ FRED Economic Indicators")
+        if db_metrics.get('fred_indicators'):
+            fred_df = pd.DataFrame(db_metrics['fred_indicators'])
+            fred_df['date_range'] = fred_df['earliest_date'].astype(str) + ' to ' + fred_df['latest_date'].astype(str)
+            display_fred = fred_df[['series_id', 'observation_count', 'date_range']].copy()
+            display_fred.columns = ['Indicator', 'Observations', 'Date Range']
+            st.dataframe(display_fred, use_container_width=True)
+        else:
+            st.info("No FRED data available")
     
     with col2:
-        # Average market cap by type
-        df_filtered = df[df['avg_market_cap'].notna() & (df['avg_market_cap'] > 0)]
-        if not df_filtered.empty:
-            fig_bar = px.bar(
-                df_filtered,
-                x='asset_type',
-                y='avg_market_cap',
-                title="💰 Average Market Cap by Asset Type",
-                labels={'avg_market_cap': 'Avg Market Cap ($)'}
-            )
-            fig_bar.update_layout(yaxis_tickformat='$.2s')
-            st.plotly_chart(fig_bar, use_container_width=True)
+        st.subheader("📰 News Categories")
+        if db_metrics.get('news_categories'):
+            news_df = pd.DataFrame(db_metrics['news_categories'])
+            news_df['embedding_rate'] = (news_df['embedded_count'] / news_df['article_count'] * 100).round(1)
+            display_news = news_df[['economic_categories', 'article_count', 'embedded_count', 'embedding_rate']].copy()
+            display_news.columns = ['Category', 'Articles', 'Embedded', 'Embed %']
+            st.dataframe(display_news, use_container_width=True)
         else:
-            st.info("No market cap data available")
-
-
-def render_recent_activity_table(data):
-    """Render recent sync activity table"""
-    if not data or 'sync_activity' not in data:
-        st.warning("No sync activity data available")
-        return
+            st.info("No news category data available")
     
-    sync_logs = data['sync_activity']
-    if not sync_logs:
-        st.info("No recent sync activity found")
-        return
-    
-    df = pd.DataFrame(sync_logs)
-    
-    # Format for display
-    df['sync_start_time'] = pd.to_datetime(df['sync_start_time']).dt.strftime('%Y-%m-%d %H:%M:%S')
-    df['duration_sec'] = (df['duration_ms'] / 1000).round(2)
-    df['status'] = df['success'].map({True: '✅ Success', False: '❌ Failed'})
-    
-    # Select and rename columns for display
-    display_df = df[['sync_start_time', 'series_id', 'source_type', 'records_added', 'duration_sec', 'status']].copy()
-    display_df.columns = ['Timestamp', 'Series/Asset', 'Source', 'Records Added', 'Duration (sec)', 'Status']
-    
-    st.dataframe(
-        display_df.head(20),
-        use_container_width=True,
-        hide_index=True
-    )
-
-
-def main():
-    """Main dashboard function"""
-    # Header
-    st.title("📊 Financial Intelligence Platform - Monitoring Dashboard")
-    st.markdown("Real-time monitoring of data ingestion, database health, and system performance")
-    
-    # Sidebar
-    st.sidebar.title("🔧 Dashboard Controls")
-    
-    # Auto-refresh toggle
-    auto_refresh = st.sidebar.toggle("🔄 Auto-refresh (30s)", value=False)
-    
-    if auto_refresh:
-        st.sidebar.info("Dashboard will refresh every 30 seconds")
-        # Auto-refresh every 30 seconds
-        import time
-        time.sleep(30)
-        st.rerun()
-    
-    # Manual refresh button
-    if st.sidebar.button("🔄 Refresh Now"):
-        st.rerun()
-    
-    # Load data
-    with st.spinner("Loading dashboard data..."):
-        try:
-            data = asyncio.run(load_dashboard_data())
-        except Exception as e:
-            st.error(f"Error loading data: {e}")
-            return
-    
-    if not data:
-        st.error("Failed to load dashboard data")
-        return
-    
-    # Overview metrics
-    st.header("📈 System Overview")
-    render_overview_metrics(data)
-    
-    st.divider()
-    
-    # Sync activity
-    st.header("🔄 Sync Activity")
-    render_sync_activity_chart(data)
-    
-    st.divider()
-    
-    # Performance trends
-    st.header("⚡ Performance Trends")
-    render_performance_trends(data)
-    
-    st.divider()
-    
-    # Asset breakdown
-    st.header("🏢 Asset Portfolio")
-    render_asset_breakdown(data)
-    
-    st.divider()
-    
-    # Recent activity table
-    st.header("📋 Recent Sync Operations")
-    render_recent_activity_table(data)
-    
-    # Footer
     st.markdown("---")
-    st.markdown("*Last updated: " + datetime.now().strftime('%Y-%m-%d %H:%M:%S') + "*")
-
+    
+    # ChromaDB Collections
+    st.subheader("🧠 ChromaDB Collections")
+    if chroma_metrics:
+        chroma_df = pd.DataFrame(chroma_metrics)
+        st.dataframe(chroma_df, use_container_width=True)
+    else:
+        st.info("No ChromaDB collections found")
+    
+    st.markdown("---")
+    
+    # Data recency and service status section
+    st.subheader("📅 Data Recency & Service Status")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        latest_obs = db_metrics.get('latest_observation')
+        if latest_obs:
+            days_old = (datetime.now().date() - latest_obs).days
+            st.metric("Latest Economic Data", f"{latest_obs}", f"{days_old} days ago")
+        else:
+            st.metric("Latest Economic Data", "No data")
+    
+    with col2:
+        latest_news = db_metrics.get('latest_news')
+        if latest_news:
+            if hasattr(latest_news, 'date'):
+                news_date = latest_news.date()
+            else:
+                news_date = latest_news
+            days_old = (datetime.now().date() - news_date).days
+            st.metric("Latest News", f"{news_date}", f"{days_old} days ago")
+        else:
+            st.metric("Latest News", "No data")
+    
+    with col3:
+        latest_embedding = db_metrics.get('latest_embedding_run')
+        if latest_embedding:
+            if hasattr(latest_embedding, 'date'):
+                embed_date = latest_embedding.date()
+            else:
+                embed_date = latest_embedding
+            days_old = (datetime.now().date() - embed_date).days
+            st.metric("Latest Embedding Run", f"{embed_date}", f"{days_old} days ago")
+        else:
+            st.metric("Latest Embedding Run", "No data")
+    
+    st.markdown("---")
+    
+    # Sync logs section
+    st.subheader("📋 Recent Sync Operations")
+    
+    # Time filter
+    days_filter = st.selectbox("Show logs from last:", [1, 2, 7, 14], index=1)
+    
+    sync_logs = await db_monitor.get_sync_logs(days=days_filter)
+    
+    if sync_logs:
+        logs_df = pd.DataFrame(sync_logs)
+        logs_df['sync_start_time'] = pd.to_datetime(logs_df['sync_start_time'])
+        logs_df = logs_df.sort_values('sync_start_time', ascending=False)
+        
+        # Format for display
+        display_df = logs_df.copy()
+        display_df['Time'] = display_df['sync_start_time'].dt.strftime('%m-%d %H:%M')
+        display_df['Source'] = display_df['source_type']
+        display_df['Series'] = display_df['series_id']
+        display_df['Success'] = display_df['success'].map({True: '✅', False: '❌'})
+        display_df['Records'] = display_df['records_added']
+        display_df['Duration (ms)'] = display_df['duration_ms']
+        display_df['Error'] = display_df['error_message'].fillna('')
+        
+        # Show only relevant columns
+        st.dataframe(
+            display_df[['Time', 'Source', 'Series', 'Success', 'Records', 'Duration (ms)', 'Error']],
+            use_container_width=True,
+            height=400
+        )
+        
+        # Summary stats
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            success_rate = (logs_df['success'].sum() / len(logs_df)) * 100
+            st.metric("Success Rate", f"{success_rate:.1f}%")
+        with col2:
+            total_records = logs_df['records_added'].sum()
+            st.metric("Total Records Added", f"{total_records:,}")
+        with col3:
+            avg_duration = logs_df['duration_ms'].mean()
+            st.metric("Avg Duration", f"{avg_duration:.0f}ms")
+    else:
+        st.info(f"No sync operations found in the last {days_filter} days")
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

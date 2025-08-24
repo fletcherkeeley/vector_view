@@ -160,50 +160,50 @@ class NewsHistoricalBackfill:
             }
         ]
         
-        # Add new categories for mega mode
+        # Add new categories for mega mode - FIXED CATEGORY NAMES
         if mega_mode:
             base_categories.extend([
                 {
-                    'name': 'banking_finance',
-                    'priority': 8,
-                    'keywords_count': 12,
-                    'estimated_api_calls': 36,
-                    'description': 'Banking sector and financial services - NEW'
-                },
-                {
-                    'name': 'technology_innovation',
+                    'name': 'technology_disruption',
                     'priority': 8,
                     'keywords_count': 11,
                     'estimated_api_calls': 33,
-                    'description': 'Technology sector and innovation - NEW'
+                    'description': 'Technology sector and AI disruption - NEW'
                 },
                 {
-                    'name': 'energy_commodities',
+                    'name': 'supply_chain_logistics',
                     'priority': 7,
                     'keywords_count': 13,
                     'estimated_api_calls': 39,
-                    'description': 'Energy sector and commodity markets - NEW'
+                    'description': 'Supply chain and logistics - NEW'
                 },
                 {
-                    'name': 'housing_real_estate',
+                    'name': 'energy_climate',
                     'priority': 7,
                     'keywords_count': 12,
                     'estimated_api_calls': 36,
-                    'description': 'Housing market and real estate - NEW'
+                    'description': 'Energy and climate policy - NEW'
                 },
                 {
-                    'name': 'consumer_retail',
+                    'name': 'consumer_social_trends',
                     'priority': 7,
                     'keywords_count': 12,
                     'estimated_api_calls': 36,
-                    'description': 'Consumer spending and retail sector - NEW'
+                    'description': 'Consumer behavior and social trends - NEW'
                 },
                 {
-                    'name': 'healthcare_pharma',
+                    'name': 'political_policy',
                     'priority': 6,
                     'keywords_count': 11,
                     'estimated_api_calls': 33,
-                    'description': 'Healthcare and pharmaceutical sector - NEW'
+                    'description': 'Political policy and legislation - NEW'
+                },
+                {
+                    'name': 'social_movements',
+                    'priority': 5,
+                    'keywords_count': 10,
+                    'estimated_api_calls': 30,
+                    'description': 'Social movements and activism - NEW'
                 }
             ])
         
@@ -224,11 +224,12 @@ class NewsHistoricalBackfill:
         categories = self.get_prioritized_categories(mega_mode)
         
         if mega_mode:
-            # MEGA MODE: 2-day chunks, ALL keywords, ALL categories for maximum collection
+            # MEGA MODE: 2-day chunks, but only 3 keywords per category (matches actual implementation)
             chunk_size = 2
-            keywords_per_search = 'all'
+            keywords_per_search = 3  # Actual implementation limit in news_series_fetcher.py
             num_chunks = (days_back + chunk_size - 1) // chunk_size
-            total_estimated_calls = sum(cat['keywords_count'] for cat in categories) * num_chunks * 2
+            # Use realistic estimate: 3 keywords * 2 searches per chunk = 6 calls per chunk per category
+            total_estimated_calls = len(categories) * num_chunks * 6
         elif intensive_mode:
             # Use ALL keywords (not just top 3) and smaller chunks
             chunk_size = 5
@@ -274,7 +275,8 @@ class NewsHistoricalBackfill:
             running_calls = 0
             for cat in categories:
                 if mega_mode:
-                    estimated_calls = cat['keywords_count'] * len(chunks) * 2
+                    # Realistic estimate: 3 keywords * 2 searches per chunk = 6 calls per chunk
+                    estimated_calls = len(chunks) * 6
                 elif intensive_mode:
                     estimated_calls = cat['keywords_count'] * len(chunks)
                 else:

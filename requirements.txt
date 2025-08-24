@@ -53,11 +53,11 @@ black==23.11.0
 isort==5.12.0
 mypy==1.7.1
 
-# Vector database integration (preparation)
-# These will be needed when we add vector database support
-# pinecone-client==2.2.4
-# chromadb==0.4.15
-# sentence-transformers==2.2.2
+# Vector database integration
+chromadb==0.4.24
+sentence-transformers==2.7.0
+transformers==4.44.2
+huggingface_hub==0.24.6
 
 # Optional: Web framework for API endpoints
 fastapi==0.104.1

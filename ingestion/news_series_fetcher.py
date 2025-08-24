@@ -310,8 +310,8 @@ class NewsSeriesFetcher:
         
         articles = []
         
-        # Search with different keyword combinations
-        for keyword in keywords[:3]:  # Limit to top 3 keywords to stay under rate limits
+        # Search with ALL keyword combinations for maximum coverage
+        for keyword in keywords:  # Use ALL keywords for comprehensive collection
             try:
                 # Search for articles with this keyword
                 response = await self.client.search_everything(
@@ -509,9 +509,9 @@ class NewsSeriesFetcher:
         relevance_score = article.get('relevance_score', 0)
         quality_score = article.get('data_quality_score', 0)
         
-        # LOWERED thresholds for hybrid expansion
-        min_relevance = Decimal('0.15')  # Lowered from 0.3
-        min_quality = Decimal('0.25')   # Lowered from 0.4
+        # VERY LOW thresholds for maximum collection - let vector DB handle filtering
+        min_relevance = Decimal('0.001')  # Almost no threshold - collect everything
+        min_quality = Decimal('0.40')    # Lower quality bar for wider collection
         
         return relevance_score >= min_relevance and quality_score >= min_quality
     

@@ -56,11 +56,11 @@ class YahooDatabaseIntegration:
         Args:
             database_url: PostgreSQL connection string
         """
-        self.database_url = database_url
+        self.database_url = database_url.replace('postgresql://', 'postgresql+asyncpg://')
         self.engine = None
         self.AsyncSessionLocal = None
-        
-        logger.info("Yahoo Finance Database Integration initialized")
+        self.logger = logging.getLogger(__name__)
+        self.logger.info("Yahoo Finance Database Integration initialized")
     
     async def initialize(self) -> bool:
         """
