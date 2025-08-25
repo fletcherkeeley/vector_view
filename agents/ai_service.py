@@ -455,15 +455,30 @@ Provide clear, executive-level strategic guidance with supporting reasoning."""
         return self._parse_generic_response(response_text, "synthesis")
     
     def _parse_generic_response(self, response_text: str, analysis_type: str) -> AIResponse:
-        """Generic response parser for AI analysis"""
+        """Parse generic AI response and extract structured information"""
+        try:
+            # Clean response text - remove <think> tags and content (both encoded and plain)
+            import re
+            cleaned_text = re.sub(r'&lt;think&gt;.*?&lt;/think&gt;', '', response_text, flags=re.DOTALL)
+            cleaned_text = re.sub(r'<think>.*?</think>', '', cleaned_text, flags=re.DOTALL)
+            cleaned_text = re.sub(r'# <think>.*', '', cleaned_text, flags=re.DOTALL)
+            cleaned_text = re.sub(r'^<think>.*', '', cleaned_text, flags=re.DOTALL | re.MULTILINE)
+            cleaned_text = cleaned_text.strip()
+            
+            # If response is empty after cleaning, use original but warn
+            if not cleaned_text:
+                cleaned_text = response_text
+                logger.warning(f"AI response contained only thinking tags for {analysis_type}")
+        except Exception as e:
+            logger.warning(f"Error cleaning AI response: {str(e)}")
+            cleaned_text = response_text
         
         # Extract confidence if mentioned
         confidence = 0.7  # Default confidence
         confidence_keywords = ["confidence", "certain", "sure"]
         
         # Look for percentage mentions
-        import re
-        confidence_matches = re.findall(r'(\d+)%', response_text.lower())
+        confidence_matches = re.findall(r'(\d+)%', cleaned_text.lower())
         if confidence_matches:
             try:
                 confidence = float(confidence_matches[-1]) / 100  # Use last percentage found
@@ -472,7 +487,7 @@ Provide clear, executive-level strategic guidance with supporting reasoning."""
         
         # Extract key points (look for numbered lists or bullet points)
         key_points = []
-        lines = response_text.split('\n')
+        lines = cleaned_text.split('\n')
         for line in lines:
             line = line.strip()
             if (line.startswith(('1.', '2.', '3.', '4.', '5.', '-', '•')) and 
@@ -483,7 +498,7 @@ Provide clear, executive-level strategic guidance with supporting reasoning."""
         uncertainty_factors = []
         uncertainty_keywords = ["uncertain", "unclear", "risk", "volatility", "unknown"]
         for keyword in uncertainty_keywords:
-            if keyword in response_text.lower():
+            if keyword in cleaned_text.lower():
                 uncertainty_factors.append(keyword)
         
         # Extract reasoning (look for explanatory text)
@@ -493,7 +508,7 @@ Provide clear, executive-level strategic guidance with supporting reasoning."""
                 reasoning.append(line.strip())
         
         return AIResponse(
-            content=response_text,
+            content=cleaned_text,
             confidence=min(max(confidence, 0.0), 1.0),  # Clamp between 0 and 1
             reasoning=reasoning[:5],  # Top 5 reasoning points
             key_points=key_points[:10],  # Top 10 key points

@@ -109,9 +109,9 @@ class FredClient:
             logger.debug("HTTP session created")
     
     @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=4, max=10),
-        retry=retry_if_exception_type((aiohttp.ClientError, asyncio.TimeoutError))
+        stop=stop_after_attempt(5),
+        wait=wait_exponential(multiplier=2, min=5, max=30),
+        retry=retry_if_exception_type((aiohttp.ClientError, asyncio.TimeoutError, FredAPIError))
     )
     async def _make_request(self, endpoint: str, params: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -175,10 +175,14 @@ class FredClient:
             
             except aiohttp.ClientError as e:
                 logger.error(f"Network error during request to {endpoint}: {e}")
+                # Add backoff for network issues
+                await asyncio.sleep(2)
                 raise
             
             except asyncio.TimeoutError:
                 logger.error(f"Timeout during request to {endpoint}")
+                # Add backoff for timeouts
+                await asyncio.sleep(3)
                 raise
     
     async def test_connection(self) -> bool:

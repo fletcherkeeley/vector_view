@@ -49,8 +49,12 @@ class NewsSeriesFetcher:
             client: Optional NewsClient instance. If None, creates a new one.
             reputable_sources: List of reputable news sources for quality scoring. If None, uses default list.
         """
-        self.client = client
-        self._client_owned = client is None  # Track if we own the client for cleanup
+        if client is None:
+            self.client = NewsClient()
+            self._client_owned = True  # Track if we own the client for cleanup
+        else:
+            self.client = client
+            self._client_owned = False
         
         # Economic keywords for intelligent searching
         self.economic_keywords = self._get_economic_keywords()
@@ -229,6 +233,50 @@ class NewsSeriesFetcher:
                 'related_assets': ['SPY', 'XLY'],
                 'priority': 5,
                 'category': NewsCategory.EMPLOYMENT
+            },
+            
+            # DAILY UPDATER CATEGORIES
+            'financial_markets': {
+                'keywords': ['stock market', 'dow jones', 'nasdaq', 's&p 500', 'market rally', 'market decline', 'trading volume', 'market volatility', 'bull market', 'bear market', 'market correction', 'stock prices', 'equity markets', 'market sentiment', 'investor confidence'],
+                'related_series': ['VIXCLS', 'TEDRATE'],
+                'related_assets': ['SPY', 'QQQ', 'VTI'],
+                'priority': 7,
+                'category': NewsCategory.MARKET_VOLATILITY
+            },
+            'banking': {
+                'keywords': ['banks', 'banking', 'credit', 'loans', 'mortgages', 'financial institutions', 'bank earnings', 'credit risk', 'lending', 'deposits', 'bank regulation', 'basel', 'stress test', 'bank capital', 'financial services'],
+                'related_series': ['FEDFUNDS', 'DGS10', 'TEDRATE'],
+                'related_assets': ['XLF', 'JPM', 'BAC'],
+                'priority': 6,
+                'category': NewsCategory.FEDERAL_RESERVE
+            },
+            'trade': {
+                'keywords': ['international trade', 'exports', 'imports', 'trade deficit', 'trade surplus', 'tariffs', 'trade war', 'trade deal', 'wto', 'nafta', 'usmca', 'trade policy', 'customs', 'trade balance', 'global trade'],
+                'related_series': [],
+                'related_assets': ['SPY', 'EFA', 'EEM'],
+                'priority': 6,
+                'category': NewsCategory.GEOPOLITICAL
+            },
+            'housing': {
+                'keywords': ['housing market', 'real estate', 'home prices', 'mortgage rates', 'housing starts', 'building permits', 'home sales', 'housing bubble', 'foreclosure', 'rental market', 'construction', 'homebuilders', 'housing affordability'],
+                'related_series': ['PERMIT', 'HOUST', 'DGS10'],
+                'related_assets': ['XLRE', 'XHB', 'ITB'],
+                'priority': 7,
+                'category': NewsCategory.GDP_GROWTH
+            },
+            'consumer_spending': {
+                'keywords': ['consumer spending', 'retail sales', 'consumer confidence', 'personal consumption', 'disposable income', 'consumer behavior', 'retail earnings', 'e-commerce', 'shopping', 'consumer debt', 'credit card spending', 'consumer sentiment'],
+                'related_series': ['AHETPI'],
+                'related_assets': ['XLY', 'AMZN', 'WMT'],
+                'priority': 6,
+                'category': NewsCategory.GDP_GROWTH
+            },
+            'energy': {
+                'keywords': ['oil prices', 'crude oil', 'natural gas', 'energy sector', 'opec', 'energy companies', 'gasoline prices', 'energy crisis', 'renewable energy', 'oil production', 'energy policy', 'petroleum', 'energy stocks'],
+                'related_series': ['WPUFD49207'],
+                'related_assets': ['XLE', 'USO', 'UNG'],
+                'priority': 6,
+                'category': NewsCategory.COMMODITY_MARKETS
             }
         }
     
@@ -286,15 +334,130 @@ class NewsSeriesFetcher:
         
         return results
     
+    async def fetch_category_articles(
+        self,
+        category: str,
+        start_date: date,
+        end_date: date,
+        max_articles: int = 100,
+        max_api_calls: int = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Public method to fetch articles for a specific category.
+        
+        Args:
+            category: Economic category to search for
+            start_date: Start date for article search
+            end_date: End date for article search
+            max_articles: Maximum number of articles to return
+            max_api_calls: Maximum API calls to use (for compatibility)
+            
+        Returns:
+            List of processed articles for the category
+        """
+        # Use API call-based search if max_api_calls is provided
+        if max_api_calls is not None:
+            return await self._search_category_articles_by_api_calls(category, start_date, end_date, max_api_calls)
+        return await self._search_category_articles(category, start_date, end_date, max_articles)
+
+    async def _search_category_articles_by_api_calls(
+        self,
+        category: str,
+        start_date: date,
+        end_date: date,
+        max_api_calls: int
+    ) -> List[Dict[str, Any]]:
+        """
+        Search for articles using API call budget instead of article limit.
+        
+        Args:
+            category: Economic category to search
+            start_date: Start date for search
+            end_date: End date for search
+            max_api_calls: Maximum API calls to make
+            
+        Returns:
+            List of processed article dictionaries
+        """
+        category_info = self.economic_keywords[category]
+        keywords = category_info['keywords']
+        
+        articles = []
+        api_calls_made = 0
+        seen_urls = set()  # Deduplicate articles
+        
+        logger.info(f"Starting API call-based search for {category} with {max_api_calls} calls")
+        
+        # Distribute API calls across keywords
+        calls_per_keyword = max(1, max_api_calls // len(keywords))
+        
+        for keyword in keywords:
+            if api_calls_made >= max_api_calls:
+                break
+                
+            keyword_calls = 0
+            page = 1
+            
+            while keyword_calls < calls_per_keyword and api_calls_made < max_api_calls:
+                try:
+                    # Make API call with pagination
+                    response = await self.client.search_everything(
+                        q=keyword,
+                        from_date=start_date.strftime('%Y-%m-%d'),
+                        to_date=end_date.strftime('%Y-%m-%d'),
+                        language='en',
+                        sort_by='publishedAt',
+                        page_size=100,  # Max page size
+                        page=page
+                    )
+                    
+                    api_calls_made += 1
+                    keyword_calls += 1
+                    
+                    raw_articles = response.get('articles', [])
+                    
+                    # If no articles returned, stop paginating this keyword
+                    if not raw_articles:
+                        break
+                    
+                    # Process each article
+                    new_articles_count = 0
+                    for raw_article in raw_articles:
+                        url = raw_article.get('url', '')
+                        if url and url not in seen_urls:
+                            processed_article = self._process_article(raw_article, category)
+                            if processed_article and self._is_economically_relevant(processed_article, category):
+                                articles.append(processed_article)
+                                seen_urls.add(url)
+                                new_articles_count += 1
+                    
+                    logger.debug(f"Keyword '{keyword}' page {page}: {new_articles_count} new articles (API calls: {api_calls_made}/{max_api_calls})")
+                    
+                    # If we got less than 100 articles, we've hit the end
+                    if len(raw_articles) < 100:
+                        break
+                        
+                    page += 1
+                    
+                except NewsAPIError as e:
+                    logger.warning(f"API error for keyword '{keyword}' page {page}: {e}")
+                    break
+                except Exception as e:
+                    logger.error(f"Unexpected error for keyword '{keyword}' page {page}: {e}")
+                    break
+        
+        logger.info(f"Completed search for {category}: {len(articles)} articles using {api_calls_made} API calls")
+        return articles
+    
     async def _search_category_articles(
         self,
         category: str,
         start_date: date,
         end_date: date,
-        max_articles: int
+        max_articles: int = 100
     ) -> List[Dict[str, Any]]:
         """
-        Search for articles in a specific economic category.
+        Search for articles in a specific economic category (legacy method).
         
         Args:
             category: Economic category to search

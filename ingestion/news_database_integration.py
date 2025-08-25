@@ -162,6 +162,31 @@ class NewsDatabaseIntegration:
         
         return successful_inserts, conflicts_updated, failed_inserts
     
+    async def bulk_insert_articles(self, articles: List[Dict[str, Any]]) -> Tuple[int, int, int]:
+        """
+        Bulk insert articles into the database (alias for store_articles for compatibility).
+        
+        Args:
+            articles: List of processed article dictionaries
+            
+        Returns:
+            Tuple of (successful_inserts, conflicts_updated, failed_inserts)
+        """
+        return await self.store_articles(articles)
+    
+    async def log_api_calls(self, source: str = None, calls_made: int = 0, success: bool = True, **kwargs) -> None:
+        """
+        Log API calls usage for tracking (compatibility method).
+        
+        Args:
+            source: Data source (for compatibility)
+            calls_made: Number of API calls made
+            success: Whether the calls were successful
+            **kwargs: Additional parameters for compatibility
+        """
+        # This is a compatibility method - actual logging happens in _log_sync_operation
+        logger.debug(f"API calls logged: {calls_made} calls from {source} (success: {success})")
+    
     async def bulk_fetch_and_store_news(
         self, 
         categories: Optional[List[str]] = None,

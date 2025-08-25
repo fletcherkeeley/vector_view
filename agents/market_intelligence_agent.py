@@ -72,15 +72,13 @@ class MarketIntelligenceAgent(BaseAgent):
             'consumer': ['WMT', 'PG', 'KO', 'PEP', 'COST']
         }
         
-        # Key market indicators to monitor
+        # Key market indicators to monitor (using actual series_ids from database)
         self.key_indicators = [
-            'SPY',  # S&P 500
-            'QQQ',  # NASDAQ
-            'DIA',  # Dow Jones
-            'VIX',  # Volatility Index
-            'TLT',  # 20+ Year Treasury Bond
-            'GLD',  # Gold
-            'DXY'   # Dollar Index
+            'SPY',     # S&P 500
+            'QQQ',     # NASDAQ
+            'TLT',     # 20+ Year Treasury Bond
+            'GLD',     # Gold
+            'VIXCLS'   # Volatility Index (actual series_id)
         ]
 
     async def analyze(self, context: AgentContext) -> AgentResponse:
@@ -106,10 +104,28 @@ class MarketIntelligenceAgent(BaseAgent):
                 news_data, market_data, correlation_analysis, context
             )
             
-            # Generate AI-powered insights
-            ai_insights = await self._generate_market_insights(
-                impact_analysis, correlation_analysis, context
+            # Generate AI-powered insights using the proper AI service method
+            ai_analysis = await self.ai_service.analyze_market_data(
+                market_data={
+                    "impact_analysis": {
+                        "sentiment_score": impact_analysis.news_sentiment_score,
+                        "market_correlation": impact_analysis.market_correlation,
+                        "volatility_forecast": impact_analysis.volatility_forecast,
+                        "sector_impact": impact_analysis.sector_impact
+                    },
+                    "correlation_analysis": {
+                        "correlation_coefficient": correlation_analysis.correlation_coefficient,
+                        "statistical_significance": correlation_analysis.statistical_significance,
+                        "correlation_strength": correlation_analysis.correlation_strength,
+                        "sample_size": correlation_analysis.sample_size
+                    }
+                },
+                technical_indicators={},
+                context=f"Query: {context.query}. Timeframe: {context.timeframe}. Market Intelligence Analysis."
             )
+            
+            # Extract insights from AI analysis (already cleaned by ai_service)
+            ai_insights = ai_analysis.content
             
             # Calculate execution metrics
             execution_time = (datetime.now() - start_time).total_seconds() * 1000
@@ -161,43 +177,68 @@ class MarketIntelligenceAgent(BaseAgent):
             )
 
     async def _get_recent_news_sentiment(self, context: AgentContext) -> List[Dict]:
-        """Get recent news articles with sentiment scores from ChromaDB"""
+        """Get sentiment data from news sentiment agent output or fallback to basic retrieval"""
         try:
+            # First, try to get sentiment data from agent context (preferred method)
+            if hasattr(context, 'agent_outputs') and context.agent_outputs:
+                sentiment_output = context.agent_outputs.get('news_sentiment')
+                if sentiment_output and hasattr(sentiment_output, 'analysis'):
+                    sentiment_analysis = sentiment_output.analysis
+                    
+                    # Extract sentiment data from news sentiment agent
+                    overall_sentiment = sentiment_analysis.get('sentiment_analysis', {}).get('overall_sentiment', 0.0)
+                    articles_analyzed = sentiment_analysis.get('articles_analyzed', 0)
+                    
+                    # Create synthetic news data with sentiment from sentiment agent
+                    news_articles = []
+                    for i in range(min(articles_analyzed, 10)):  # Use up to 10 articles
+                        news_articles.append({
+                            'content': f'Financial news article {i+1}',
+                            'sentiment_score': overall_sentiment,
+                            'timestamp': datetime.now(),
+                            'source': 'news_sentiment_agent',
+                            'title': f'Market news {i+1}',
+                            'relevance_score': 0.8
+                        })
+                    
+                    logger.info(f"Using sentiment data from news sentiment agent: {overall_sentiment:.3f} sentiment, {len(news_articles)} articles")
+                    return news_articles
+            
+            # Fallback: Get news articles directly from ChromaDB
             if not self.chroma_client:
-                return []
+                try:
+                    import chromadb
+                    self.chroma_client = chromadb.PersistentClient(path="./chroma_db")
+                except Exception as e:
+                    logger.warning(f"ChromaDB not available: {str(e)}")
+                    return []
             
-            # Determine timeframe for news retrieval
-            hours_back = self._parse_timeframe_hours(context.timeframe)
-            cutoff_time = datetime.now() - timedelta(hours=hours_back)
-            
-            # Query ChromaDB for recent news articles
-            collection = self.chroma_client.get_collection("news_articles")
-            
-            # Get recent articles with metadata
+            collection = self.chroma_client.get_collection("financial_news")
             results = collection.query(
                 query_texts=[context.query] if context.query else ["market news financial"],
-                n_results=50,
-                where={
-                    "timestamp": {"$gte": cutoff_time.isoformat()}
-                }
+                n_results=20
             )
             
             news_articles = []
-            for i, doc in enumerate(results['documents'][0]):
-                metadata = results['metadatas'][0][i]
-                
-                # Extract sentiment score (assuming it's stored in metadata)
-                sentiment_score = metadata.get('sentiment_score', 0.0)
-                
-                news_articles.append({
-                    'content': doc,
-                    'sentiment_score': sentiment_score,
-                    'timestamp': metadata.get('timestamp'),
-                    'source': metadata.get('source', 'unknown'),
-                    'title': metadata.get('title', ''),
-                    'relevance_score': results['distances'][0][i] if results['distances'] else 1.0
-                })
+            if results and results.get('documents') and results['documents'][0]:
+                for i, doc in enumerate(results['documents'][0]):
+                    metadata = results['metadatas'][0][i] if results.get('metadatas') else {}
+                    
+                    # Use basic sentiment calculation as fallback
+                    sentiment_score = metadata.get('sentiment_score', 0.0)
+                    if sentiment_score == 0.0 and doc:
+                        sentiment_score = self._calculate_basic_sentiment(doc)
+                    
+                    news_articles.append({
+                        'content': doc,
+                        'sentiment_score': float(sentiment_score),
+                        'timestamp': metadata.get('published_at') or metadata.get('timestamp'),
+                        'source': metadata.get('source_name', 'unknown'),
+                        'title': metadata.get('title', ''),
+                        'relevance_score': 1.0 - (results['distances'][0][i] if results.get('distances') else 0.0)
+                    })
             
+            logger.info(f"Using fallback ChromaDB sentiment data: {len(news_articles)} articles")
             return news_articles
             
         except Exception as e:
@@ -207,35 +248,40 @@ class MarketIntelligenceAgent(BaseAgent):
     async def _get_market_data(self, context: AgentContext) -> pd.DataFrame:
         """Get market data from PostgreSQL database"""
         try:
-            if not self.db_connection:
-                return pd.DataFrame()
+            from sqlalchemy import create_engine, text
+            
+            # Use database_url to create connection
+            if not hasattr(self, 'engine'):
+                self.engine = create_engine(self.database_url)
             
             # Determine timeframe for market data
             hours_back = self._parse_timeframe_hours(context.timeframe)
             cutoff_time = datetime.now() - timedelta(hours=hours_back)
             
-            # Query for market data (focusing on key indicators)
+            # Query for market data using the actual schema (data_series + time_series_observations)
             symbols_str = "', '".join(self.key_indicators)
             
-            query = f"""
+            query = text(f"""
             SELECT 
-                ts.symbol,
+                ds.series_id as symbol,
                 tso.observation_date as date,
-                tso.value as close_price,
-                tso.metadata
-            FROM time_series ts
-            JOIN time_series_observations tso ON ts.id = tso.time_series_id
-            WHERE ts.symbol IN ('{symbols_str}')
-            AND tso.observation_date >= %s
-            ORDER BY ts.symbol, tso.observation_date DESC
-            """
+                tso.value as close_price
+            FROM data_series ds
+            JOIN time_series_observations tso ON ds.series_id = tso.series_id
+            WHERE ds.series_id IN ('{symbols_str}')
+            AND tso.observation_date >= :cutoff_time
+            AND tso.value IS NOT NULL
+            ORDER BY ds.series_id, tso.observation_date DESC
+            """)
             
-            market_df = pd.read_sql_query(
-                query, 
-                self.db_connection, 
-                params=[cutoff_time]
-            )
+            with self.engine.connect() as conn:
+                result = conn.execute(query, {"cutoff_time": cutoff_time})
+                data = result.fetchall()
             
+            if not data:
+                return pd.DataFrame()
+            
+            market_df = pd.DataFrame(data, columns=['symbol', 'date', 'close_price'])
             return market_df
             
         except Exception as e:
@@ -270,10 +316,13 @@ class MarketIntelligenceAgent(BaseAgent):
             spy_data = market_data[market_data['symbol'] == 'SPY'].copy()
             if spy_data.empty:
                 # Fallback to any available market data
-                spy_data = market_data.groupby('date')['close_price'].first().reset_index()
+                spy_data = market_data.groupby(['symbol', 'date'])['close_price'].first().reset_index()
+                spy_data = spy_data.groupby('date')['close_price'].first().reset_index()
             
             spy_data['date'] = pd.to_datetime(spy_data['date'])
             spy_data['hour'] = spy_data['date'].dt.floor('H')
+            # Convert Decimal to float to avoid type errors
+            spy_data['close_price'] = spy_data['close_price'].astype(float)
             spy_data['returns'] = spy_data['close_price'].pct_change()
             
             # Merge sentiment and market data
@@ -346,6 +395,9 @@ class MarketIntelligenceAgent(BaseAgent):
             if not market_data.empty:
                 spy_data = market_data[market_data['symbol'] == 'SPY']
                 if not spy_data.empty:
+                    # Convert Decimal to float to avoid type errors
+                    spy_data = spy_data.copy()
+                    spy_data['close_price'] = spy_data['close_price'].astype(float)
                     returns = spy_data['close_price'].pct_change().dropna()
                     market_volatility = returns.std() * np.sqrt(252)  # Annualized
                 else:
@@ -372,7 +424,7 @@ class MarketIntelligenceAgent(BaseAgent):
                     'consumer': 0.9
                 }
                 multiplier = sector_sentiment_multiplier.get(sector, 1.0)
-                sector_impact[sector] = avg_sentiment * multiplier
+                sector_impact[sector] = avg_sentiment * multiplier * correlation_analysis.correlation_coefficient
             
             # Generate supporting evidence
             evidence = []
@@ -468,7 +520,13 @@ class MarketIntelligenceAgent(BaseAgent):
                 max_tokens=800
             )
             
-            return response
+            # Clean response to remove think tags
+            import re
+            cleaned_response = re.sub(r'<think>.*?</think>', '', response, flags=re.DOTALL)
+            cleaned_response = re.sub(r'^<think>.*', '', cleaned_response, flags=re.DOTALL | re.MULTILINE)
+            cleaned_response = cleaned_response.strip()
+            
+            return cleaned_response if cleaned_response else response.strip()
             
         except Exception as e:
             logger.error(f"AI insight generation failed: {str(e)}")
@@ -527,6 +585,34 @@ class MarketIntelligenceAgent(BaseAgent):
             '1y': 8760
         }
         return timeframe_map.get(timeframe, 24)  # Default to 1 day
+
+    def _calculate_basic_sentiment(self, text: str) -> float:
+        """Calculate basic sentiment score from text using keyword analysis"""
+        try:
+            if not text:
+                return 0.0
+            
+            text_lower = text.lower()
+            
+            # Positive keywords
+            positive_words = ['gain', 'rise', 'up', 'surge', 'rally', 'bull', 'positive', 'strong', 'growth', 'increase']
+            # Negative keywords  
+            negative_words = ['fall', 'drop', 'down', 'decline', 'bear', 'negative', 'weak', 'loss', 'decrease', 'crash']
+            
+            positive_count = sum(1 for word in positive_words if word in text_lower)
+            negative_count = sum(1 for word in negative_words if word in text_lower)
+            
+            # Calculate sentiment score (-1 to +1)
+            total_sentiment_words = positive_count + negative_count
+            if total_sentiment_words == 0:
+                return 0.0
+            
+            sentiment = (positive_count - negative_count) / total_sentiment_words
+            return max(-1.0, min(1.0, sentiment))  # Clamp between -1 and 1
+            
+        except Exception as e:
+            logger.warning(f"Basic sentiment calculation failed: {str(e)}")
+            return 0.0
 
     def get_required_data_sources(self, context: AgentContext) -> List[str]:
         """Return list of data sources required for market intelligence analysis"""

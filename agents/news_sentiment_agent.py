@@ -106,10 +106,27 @@ class NewsSentimentAgent(BaseAgent):
             # Track narrative trends and themes
             narrative_analysis = await self._analyze_narratives(news_articles, context)
             
-            # Generate AI-powered insights
-            ai_insights = await self._generate_sentiment_insights(
-                sentiment_analysis, narrative_analysis, entities, context
+            # Generate AI-powered insights using the proper AI service method
+            ai_analysis = await self.ai_service.analyze_news_sentiment(
+                news_articles=news_articles,
+                semantic_context={
+                    "sentiment": {
+                        "overall_sentiment": sentiment_analysis.overall_sentiment,
+                        "credibility_score": sentiment_analysis.credibility_score,
+                        "market_relevance": sentiment_analysis.market_relevance,
+                        "emotional_tone": sentiment_analysis.emotional_tone
+                    },
+                    "narrative": {
+                        "dominant_themes": narrative_analysis.dominant_themes,
+                        "narrative_direction": narrative_analysis.narrative_shift,
+                        "consensus_strength": narrative_analysis.consensus_level
+                    }
+                },
+                context=f"Query: {context.query}. Timeframe: {context.timeframe}. News Sentiment Analysis."
             )
+            
+            # Extract insights from AI analysis (already cleaned by ai_service)
+            ai_insights = ai_analysis.content
             
             # Calculate execution metrics
             execution_time = (datetime.now() - start_time).total_seconds() * 1000
@@ -163,31 +180,45 @@ class NewsSentimentAgent(BaseAgent):
     async def _get_news_articles(self, context: AgentContext) -> List[Dict]:
         """Retrieve news articles from ChromaDB"""
         try:
+            # Initialize ChromaDB client if not provided
             if not self.chroma_client:
-                return []
+                try:
+                    import chromadb
+                    self.chroma_client = chromadb.PersistentClient(path="./chroma_db")
+                except Exception as e:
+                    logger.warning(f"ChromaDB not available: {str(e)}")
+                    return []
             
             hours_back = self._parse_timeframe_hours(context.timeframe)
             cutoff_time = datetime.now() - timedelta(hours=hours_back)
             
-            collection = self.chroma_client.get_collection("news_articles")
+            try:
+                collection = self.chroma_client.get_collection("financial_news")
+            except Exception as e:
+                logger.warning(f"ChromaDB collection 'financial_news' not found: {str(e)}")
+                return []
             
+            # Query without timestamp filter since the data doesn't have recent timestamps
             results = collection.query(
                 query_texts=[context.query] if context.query else ["financial news market"],
-                n_results=100,
-                where={"timestamp": {"$gte": cutoff_time.isoformat()}}
+                n_results=20  # Reduced to get more relevant results
             )
             
             articles = []
-            for i, doc in enumerate(results['documents'][0]):
-                metadata = results['metadatas'][0][i]
-                articles.append({
-                    'content': doc,
-                    'title': metadata.get('title', ''),
-                    'source': metadata.get('source', 'unknown'),
-                    'timestamp': metadata.get('timestamp'),
-                    'url': metadata.get('url', ''),
-                    'relevance_score': 1.0 - (results['distances'][0][i] if results['distances'] else 0.0)
-                })
+            if results and results.get('documents') and results['documents'][0]:
+                for i, doc in enumerate(results['documents'][0]):
+                    metadata = results['metadatas'][0][i] if results.get('metadatas') else {}
+                    # Extract sentiment score from metadata
+                    sentiment_score = metadata.get('sentiment_score', 0.0)
+                    articles.append({
+                        'content': doc,
+                        'title': metadata.get('title', ''),
+                        'source': metadata.get('source_name', 'unknown'),
+                        'timestamp': metadata.get('published_at'),
+                        'url': metadata.get('url', ''),
+                        'sentiment_score': float(sentiment_score) if sentiment_score else 0.0,
+                        'relevance_score': 1.0 - (results['distances'][0][i] if results.get('distances') else 0.0)
+                    })
             
             return articles
             
@@ -407,7 +438,13 @@ class NewsSentimentAgent(BaseAgent):
                 max_tokens=600
             )
             
-            return response
+            # Clean response to remove think tags
+            import re
+            cleaned_response = re.sub(r'<think>.*?</think>', '', response, flags=re.DOTALL)
+            cleaned_response = re.sub(r'^<think>.*', '', cleaned_response, flags=re.DOTALL | re.MULTILINE)
+            cleaned_response = cleaned_response.strip()
+            
+            return cleaned_response if cleaned_response else response
             
         except Exception as e:
             logger.error(f"Sentiment insight generation failed: {str(e)}")

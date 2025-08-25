@@ -38,7 +38,11 @@ from unified_database_setup import (
     NewsArticles, DataSeries, MarketAssets, 
     DataSourceType, FrequencyType, AssetType
 )
-from .vector_store import SemanticVectorStore, CollectionType, create_semantic_store
+try:
+    from .vector_store import SemanticVectorStore, CollectionType, create_semantic_store
+except ImportError:
+    # Handle case when run as standalone script
+    from vector_store import SemanticVectorStore, CollectionType, create_semantic_store
 
 # Load environment variables
 load_dotenv()

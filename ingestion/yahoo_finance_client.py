@@ -27,6 +27,7 @@ import pandas as pd
 import yfinance as yf
 import asyncio_throttle
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+import socket
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -44,7 +45,7 @@ class YahooFinanceClient:
     Provides async interface around yfinance with rate limiting and error handling.
     """
     
-    MAX_REQUESTS_PER_MINUTE = 30  # Conservative rate limit
+    MAX_REQUESTS_PER_MINUTE = 12  # Very conservative rate limit to avoid 429 errors
     
     def __init__(self):
         """Initialize Yahoo Finance client with rate limiting."""
@@ -93,6 +94,14 @@ class YahooFinanceClient:
                 return result
             except Exception as e:
                 logger.error(f"yfinance operation failed: {e}")
+                # Check if it's a rate limiting issue
+                if "429" in str(e) or "Too Many Requests" in str(e):
+                    logger.warning(f"Rate limited by Yahoo Finance, backing off: {e}")
+                    await asyncio.sleep(10)  # Wait 10 seconds for rate limit recovery
+                # Check for DNS resolution issues
+                elif "Could not resolve host" in str(e) or isinstance(e, socket.gaierror):
+                    logger.warning(f"DNS resolution failed, retrying with backoff: {e}")
+                    await asyncio.sleep(3)  # Wait 3 seconds for DNS recovery
                 raise YahooFinanceError(f"Yahoo Finance operation failed: {e}")
     
     @retry(

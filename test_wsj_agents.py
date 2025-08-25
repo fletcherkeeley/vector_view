@@ -111,7 +111,7 @@ class WSJAgentTestSuite:
             return test_results
 
     async def _test_individual_agents(self) -> Dict[str, Any]:
-        """Test each agent individually"""
+        """Test each agent individually with detailed output display"""
         agent_results = {}
         
         test_context = AgentContext(
@@ -129,6 +129,9 @@ class WSJAgentTestSuite:
                 
                 execution_time = (datetime.now() - start_time).total_seconds() * 1000
                 
+                # Display detailed agent output
+                self._display_agent_output(agent_name, response)
+                
                 agent_results[agent_name] = {
                     'status': 'success',
                     'confidence': response.confidence,
@@ -136,7 +139,8 @@ class WSJAgentTestSuite:
                     'content_length': len(response.insights[0]) if response.insights else 0,
                     'signals_generated': len(response.signals_for_other_agents),
                     'data_quality': len(response.analysis) if response.analysis else 0,
-                    'agent_type': response.agent_type.value
+                    'agent_type': response.agent_type.value,
+                    'full_response': response  # Store full response for detailed analysis
                 }
                 
                 logger.info(f"✅ {agent_name}: {response.confidence:.2f} confidence, {execution_time:.1f}ms")
@@ -150,6 +154,62 @@ class WSJAgentTestSuite:
                 }
         
         return agent_results
+
+    def _display_agent_output(self, agent_name: str, response):
+        """Display detailed agent output for performance assessment"""
+        print(f"\n{'='*60}")
+        print(f"🤖 {agent_name.upper()} AGENT OUTPUT")
+        print(f"{'='*60}")
+        
+        # Basic metrics
+        print(f"📊 PERFORMANCE METRICS:")
+        print(f"   Confidence: {response.confidence:.3f} ({response.confidence_level.value})")
+        print(f"   Execution Time: {response.execution_time_ms:.1f}ms")
+        print(f"   Agent Type: {response.agent_type.value}")
+        print(f"   Timestamp: {response.timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
+        
+        # Key metrics
+        if response.key_metrics:
+            print(f"\n🔢 KEY METRICS:")
+            for metric, value in response.key_metrics.items():
+                print(f"   {metric}: {value}")
+        
+        # Analysis data
+        if response.analysis:
+            print(f"\n📈 ANALYSIS DATA:")
+            for key, value in response.analysis.items():
+                if isinstance(value, (dict, list)):
+                    print(f"   {key}: {type(value).__name__} with {len(value)} items")
+                else:
+                    print(f"   {key}: {str(value)[:100]}{'...' if len(str(value)) > 100 else ''}")
+        
+        # Insights
+        if response.insights:
+            print(f"\n💡 INSIGHTS ({len(response.insights)} total):")
+            for i, insight in enumerate(response.insights[:3], 1):  # Show first 3 insights
+                print(f"   {i}. {insight[:200]}{'...' if len(insight) > 200 else ''}")
+            if len(response.insights) > 3:
+                print(f"   ... and {len(response.insights) - 3} more insights")
+        
+        # Cross-agent signals
+        if response.signals_for_other_agents:
+            print(f"\n🔄 SIGNALS FOR OTHER AGENTS:")
+            for signal, value in response.signals_for_other_agents.items():
+                print(f"   {signal}: {value}")
+        
+        # Data sources
+        if response.data_sources_used:
+            print(f"\n📚 DATA SOURCES USED:")
+            for source in response.data_sources_used:
+                print(f"   • {source}")
+        
+        # Uncertainty factors
+        if response.uncertainty_factors:
+            print(f"\n⚠️  UNCERTAINTY FACTORS:")
+            for factor in response.uncertainty_factors:
+                print(f"   • {factor}")
+        
+        print(f"{'='*60}\n")
 
     async def _test_integration_scenarios(self) -> Dict[str, Any]:
         """Test integration scenarios that simulate WSJ workflows"""
@@ -169,8 +229,24 @@ class WSJAgentTestSuite:
                 start_time = datetime.now()
                 orchestration_response = await self.agents['orchestration'].analyze(context)
                 
-                # Test editorial synthesis
+                print(f"\n🔄 ORCHESTRATION OUTPUT FOR SCENARIO: {scenario['name']}")
+                self._display_agent_output('orchestration', orchestration_response)
+                
+                # Test individual agents that would be called in this scenario
+                agent_responses = {}
+                for expected_agent in scenario['expected_agents']:
+                    if expected_agent in self.agents and expected_agent != 'editorial_synthesis':
+                        print(f"\n📊 RUNNING {expected_agent.upper()} FOR SCENARIO: {scenario['name']}")
+                        agent_response = await self.agents[expected_agent].analyze(context)
+                        agent_responses[expected_agent] = agent_response
+                        self._display_agent_output(expected_agent, agent_response)
+                
+                # Test editorial synthesis with context from other agents
+                context.agent_outputs = agent_responses
                 editorial_response = await self.agents['editorial_synthesis'].analyze(context)
+                
+                print(f"\n📰 EDITORIAL SYNTHESIS OUTPUT FOR SCENARIO: {scenario['name']}")
+                self._display_agent_output('editorial_synthesis', editorial_response)
                 
                 total_time = (datetime.now() - start_time).total_seconds() * 1000
                 

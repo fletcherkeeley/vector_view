@@ -107,16 +107,18 @@ class OrchestrationAgent(BaseAgent):
                 query_type="daily_briefing",
                 required_agents=[
                     AgentType.ECONOMIC,
-                    AgentType.MARKET,
-                    AgentType.SENTIMENT,
-                    AgentType.SYNTHESIS
+                    AgentType.MARKET_INTELLIGENCE,
+                    AgentType.NEWS_SENTIMENT,
+                    AgentType.EDITORIAL_SYNTHESIS
                 ],
                 execution_order=[
-                    [AgentType.ECONOMIC, AgentType.MARKET, AgentType.SENTIMENT],  # Parallel
-                    [AgentType.SYNTHESIS]  # Sequential after first group
+                    [AgentType.ECONOMIC, AgentType.NEWS_SENTIMENT],  # First: Economic + Sentiment in parallel
+                    [AgentType.MARKET_INTELLIGENCE],  # Second: Market Intelligence (needs sentiment data)
+                    [AgentType.EDITORIAL_SYNTHESIS]  # Final: Synthesis
                 ],
                 dependencies={
-                    AgentType.SYNTHESIS: [AgentType.ECONOMIC, AgentType.MARKET, AgentType.SENTIMENT]
+                    AgentType.MARKET_INTELLIGENCE: [AgentType.NEWS_SENTIMENT],
+                    AgentType.EDITORIAL_SYNTHESIS: [AgentType.ECONOMIC, AgentType.MARKET_INTELLIGENCE, AgentType.NEWS_SENTIMENT]
                 },
                 timeout_seconds=180
             ),
@@ -126,14 +128,19 @@ class OrchestrationAgent(BaseAgent):
                 query_type="deep_dive",
                 required_agents=[
                     AgentType.ECONOMIC,
-                    AgentType.MARKET,
-                    AgentType.SENTIMENT,
-                    AgentType.SYNTHESIS
+                    AgentType.MARKET_INTELLIGENCE,
+                    AgentType.NEWS_SENTIMENT,
+                    AgentType.EDITORIAL_SYNTHESIS
                 ],
                 execution_order=[
-                    [AgentType.ECONOMIC, AgentType.MARKET, AgentType.SENTIMENT],
-                    [AgentType.SYNTHESIS]
+                    [AgentType.ECONOMIC, AgentType.NEWS_SENTIMENT],
+                    [AgentType.MARKET_INTELLIGENCE],
+                    [AgentType.EDITORIAL_SYNTHESIS]
                 ],
+                dependencies={
+                    AgentType.MARKET_INTELLIGENCE: [AgentType.NEWS_SENTIMENT],
+                    AgentType.EDITORIAL_SYNTHESIS: [AgentType.ECONOMIC, AgentType.MARKET_INTELLIGENCE, AgentType.NEWS_SENTIMENT]
+                },
                 timeout_seconds=300
             ),
             
@@ -142,13 +149,16 @@ class OrchestrationAgent(BaseAgent):
                 query_type="correlation_analysis",
                 required_agents=[
                     AgentType.ECONOMIC,
-                    AgentType.SENTIMENT,
-                    AgentType.SYNTHESIS
+                    AgentType.NEWS_SENTIMENT,
+                    AgentType.EDITORIAL_SYNTHESIS
                 ],
                 execution_order=[
-                    [AgentType.ECONOMIC, AgentType.SENTIMENT],
-                    [AgentType.SYNTHESIS]
+                    [AgentType.ECONOMIC, AgentType.NEWS_SENTIMENT],
+                    [AgentType.EDITORIAL_SYNTHESIS]
                 ],
+                dependencies={
+                    AgentType.EDITORIAL_SYNTHESIS: [AgentType.ECONOMIC, AgentType.NEWS_SENTIMENT]
+                },
                 timeout_seconds=240
             ),
             
@@ -156,14 +166,19 @@ class OrchestrationAgent(BaseAgent):
                 workflow_id="market_analysis",
                 query_type="market_analysis",
                 required_agents=[
-                    AgentType.MARKET,
-                    AgentType.SENTIMENT,
-                    AgentType.SYNTHESIS
+                    AgentType.MARKET_INTELLIGENCE,
+                    AgentType.NEWS_SENTIMENT,
+                    AgentType.EDITORIAL_SYNTHESIS
                 ],
                 execution_order=[
-                    [AgentType.MARKET, AgentType.SENTIMENT],
-                    [AgentType.SYNTHESIS]
+                    [AgentType.NEWS_SENTIMENT],  # First: Get sentiment data
+                    [AgentType.MARKET_INTELLIGENCE],  # Second: Market analysis with sentiment
+                    [AgentType.EDITORIAL_SYNTHESIS]  # Final: Synthesis
                 ],
+                dependencies={
+                    AgentType.MARKET_INTELLIGENCE: [AgentType.NEWS_SENTIMENT],
+                    AgentType.EDITORIAL_SYNTHESIS: [AgentType.MARKET_INTELLIGENCE, AgentType.NEWS_SENTIMENT]
+                },
                 timeout_seconds=200
             )
         }

@@ -59,6 +59,33 @@ class AgentContext:
     data_sources: List[str] = field(default_factory=list)
     date_range: Optional[Dict[str, datetime]] = None
     
+    def __post_init__(self):
+        """Initialize date_range from timeframe if not provided"""
+        if self.date_range is None:
+            self.date_range = self._calculate_date_range(self.timeframe)
+    
+    def _calculate_date_range(self, timeframe: str) -> Dict[str, datetime]:
+        """Calculate date range from timeframe string"""
+        end_date = datetime.now()
+        
+        timeframe_map = {
+            "1d": timedelta(days=1),
+            "1w": timedelta(weeks=1),
+            "1m": timedelta(days=30),
+            "3m": timedelta(days=90),
+            "6m": timedelta(days=180),
+            "1y": timedelta(days=365),
+            "2y": timedelta(days=730)
+        }
+        
+        delta = timeframe_map.get(timeframe, timedelta(days=30))  # Default to 1 month
+        start_date = end_date - delta
+        
+        return {
+            "start": start_date,
+            "end": end_date
+        }
+    
     # Cross-agent shared state
     market_regime: Optional[str] = None  # "bull", "bear", "sideways", "volatile"
     economic_cycle: Optional[str] = None  # "expansion", "peak", "contraction", "trough"

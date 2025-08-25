@@ -226,7 +226,7 @@ class YahooDailyUpdater:
         self, 
         symbols_list: Optional[List[str]] = None,
         dry_run: bool = False,
-        max_concurrent: int = 3
+        max_concurrent: int = 1
     ) -> Dict[str, Any]:
         """
         Update all or specified assets with incremental data.

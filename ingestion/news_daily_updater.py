@@ -317,7 +317,8 @@ class NewsDailyUpdater:
             
             # Store articles in database
             if articles:
-                stored_count = await self.db_integration.bulk_insert_articles(articles)
+                successful_inserts, conflicts_updated, failed_inserts = await self.db_integration.bulk_insert_articles(articles)
+                stored_count = successful_inserts + conflicts_updated
                 
                 # Log API call usage
                 api_calls_used = getattr(fetcher, 'api_calls_used', allocated_calls)
