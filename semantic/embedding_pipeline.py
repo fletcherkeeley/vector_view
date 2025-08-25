@@ -108,25 +108,64 @@ class EmbeddingPipeline:
             logger.error("Failed to initialize embedding pipeline", error=str(e))
             return False
     
-    async def get_unprocessed_news_articles(self, limit: int = 1000) -> List[NewsArticles]:
-        """Get news articles that haven't been embedded yet"""
+    async def get_unprocessed_news_articles(self, limit: int = None) -> List[NewsArticles]:
+        """Get news articles that haven't been embedded yet with robust detection"""
         try:
             async with self.AsyncSessionLocal() as session:
-                result = await session.execute(
-                    select(NewsArticles)
-                    .where(
+                # Primary query: articles explicitly marked as not embedded
+                query = select(NewsArticles).where(
+                    and_(
+                        NewsArticles.has_embeddings == False,
+                        NewsArticles.content.isnot(None),
+                        NewsArticles.data_quality_score >= 0.5
+                    )
+                ).order_by(NewsArticles.published_at.desc())
+                
+                if limit is not None:
+                    query = query.limit(limit)
+                
+                result = await session.execute(query)
+                
+                articles = list(result.scalars().all())
+                
+                # Secondary query: articles marked as embedded but missing vector DB info
+                # This catches inconsistencies between database flags and actual ChromaDB storage
+                remaining_limit = None
+                if limit is not None:
+                    remaining_limit = max(0, limit - len(articles))
+                    if remaining_limit == 0:
+                        inconsistent_articles = []
+                    else:
+                        inconsistent_query = select(NewsArticles).where(
+                            and_(
+                                NewsArticles.has_embeddings == True,
+                                NewsArticles.vector_db_document_id.is_(None),
+                                NewsArticles.content.isnot(None),
+                                NewsArticles.data_quality_score >= 0.5
+                            )
+                        ).order_by(NewsArticles.published_at.desc()).limit(remaining_limit)
+                        
+                        result = await session.execute(inconsistent_query)
+                        inconsistent_articles = list(result.scalars().all())
+                else:
+                    inconsistent_query = select(NewsArticles).where(
                         and_(
-                            NewsArticles.has_embeddings == False,
+                            NewsArticles.has_embeddings == True,
+                            NewsArticles.vector_db_document_id.is_(None),
                             NewsArticles.content.isnot(None),
                             NewsArticles.data_quality_score >= 0.5
                         )
-                    )
-                    .order_by(NewsArticles.published_at.desc())
-                    .limit(limit)
-                )
+                    ).order_by(NewsArticles.published_at.desc())
+                    
+                    result = await session.execute(inconsistent_query)
+                    inconsistent_articles = list(result.scalars().all())
                 
-                articles = result.scalars().all()
-                logger.info(f"Found {len(articles)} unprocessed news articles")
+                articles.extend(inconsistent_articles)
+                
+                if inconsistent_articles:
+                    logger.warning(f"Found {len(inconsistent_articles)} articles marked as embedded but missing vector DB info")
+                
+                logger.info(f"Found {len(articles)} unprocessed news articles ({len(articles) - len(inconsistent_articles)} new, {len(inconsistent_articles)} inconsistent)")
                 return articles
                 
         except Exception as e:
@@ -242,7 +281,7 @@ class EmbeddingPipeline:
         return metadata
     
     async def process_news_articles_batch(self, articles: List[NewsArticles]) -> Tuple[int, int]:
-        """Process a batch of news articles"""
+        """Process a batch of news articles with transactional safety"""
         successful = 0
         failed = 0
         
@@ -251,32 +290,81 @@ class EmbeddingPipeline:
                 # Prepare content and metadata
                 metadata = self._prepare_news_metadata(article)
                 
-                # Add to semantic store
-                success = await self.semantic_store.add_news_article(
+                # Verify article isn't already in ChromaDB to avoid duplicates
+                doc_id = f"article_{article.id}"
+                try:
+                    # Import CollectionType properly
+                    from vector_store import CollectionType
+                    # Check if already exists in ChromaDB
+                    existing = self.semantic_store.collections[CollectionType.NEWS_ARTICLES].get(
+                        ids=[doc_id]
+                    )
+                    if existing['ids']:
+                        logger.debug(f"Article {article.id} already exists in ChromaDB, updating database only")
+                        # Update database flag to match reality
+                        async with self.AsyncSessionLocal() as session:
+                            await session.execute(
+                                update(NewsArticles)
+                                .where(NewsArticles.id == article.id)
+                                .values(
+                                    has_embeddings=True,
+                                    processed_at=datetime.now(timezone.utc),
+                                    vector_db_collection="financial_news",
+                                    vector_db_document_id=doc_id,
+                                    embedding_model_version="all-MiniLM-L6-v2"
+                                )
+                            )
+                            await session.commit()
+                        successful += 1
+                        continue
+                except Exception as e:
+                    # If check fails, proceed with adding
+                    logger.warning(f"Failed to check existing article {article.id}: {e}")
+                    pass
+                
+                # Add to semantic store first with detailed error handling
+                logger.debug(f"Attempting to add article {article.id} to ChromaDB: {article.title[:50]}...")
+                chroma_success = await self.semantic_store.add_news_article(
                     article_id=str(article.id),
                     title=article.title or "",
                     content=article.content or "",
                     metadata=metadata
                 )
                 
-                if success:
-                    # Update PostgreSQL record
-                    async with self.AsyncSessionLocal() as session:
-                        await session.execute(
-                            update(NewsArticles)
-                            .where(NewsArticles.id == article.id)
-                            .values(
-                                has_embeddings=True,
-                                economic_categories=metadata["economic_categories"].split(","),
-                                processed_at=datetime.now(timezone.utc)
+                if chroma_success:
+                    # Only update database if ChromaDB succeeded
+                    try:
+                        async with self.AsyncSessionLocal() as session:
+                            await session.execute(
+                                update(NewsArticles)
+                                .where(NewsArticles.id == article.id)
+                                .values(
+                                    has_embeddings=True,
+                                    economic_categories=metadata["economic_categories"].split(","),
+                                    processed_at=datetime.now(timezone.utc),
+                                    vector_db_collection="financial_news",
+                                    vector_db_document_id=doc_id,
+                                    embedding_model_version="all-MiniLM-L6-v2"
+                                )
                             )
-                        )
-                        await session.commit()
-                    
-                    successful += 1
-                    logger.debug(f"Successfully processed news article {article.id}")
+                            await session.commit()
+                        
+                        successful += 1
+                        logger.info(f"Successfully processed and embedded article {article.id}: {article.title[:50]}...")
+                        
+                    except Exception as db_error:
+                        # If database update fails, try to remove from ChromaDB to maintain consistency
+                        logger.error(f"Database update failed for article {article.id}, removing from ChromaDB: {db_error}")
+                        try:
+                            from vector_store import CollectionType
+                            self.semantic_store.collections[CollectionType.NEWS_ARTICLES].delete(ids=[doc_id])
+                            logger.info(f"Removed article {article.id} from ChromaDB due to database failure")
+                        except Exception as cleanup_error:
+                            logger.error(f"Failed to cleanup ChromaDB for article {article.id}: {cleanup_error}")
+                        failed += 1
                 else:
                     failed += 1
+                    logger.error(f"CRITICAL: Failed to add article {article.id} to ChromaDB - title: {article.title[:50]}..., content_length: {len(article.content or '')}, quality_score: {article.data_quality_score}")
                     
             except Exception as e:
                 failed += 1
@@ -339,8 +427,12 @@ class EmbeddingPipeline:
                     results["news_articles"]["processed"] += successful
                     results["news_articles"]["failed"] += failed
                     
-                    logger.info(f"Processed news batch {i//batch_size + 1}: {successful} successful, {failed} failed")
-            
+                    logger.info(f"Processed news articles batch: {successful} successful, {failed} failed")
+                if failed > 0:
+                    logger.warning(f"ATTENTION: {failed} articles failed ChromaDB insertion - check logs for details")
+                if successful > 0:
+                    logger.info(f"SUCCESS: {successful} articles successfully added to both ChromaDB and database")
+                    
             # Process economic indicators
             logger.info("Processing economic indicators...")
             indicators = await self.get_unprocessed_economic_indicators()

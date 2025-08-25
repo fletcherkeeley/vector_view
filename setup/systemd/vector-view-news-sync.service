@@ -1,0 +1,16 @@
+[Unit]
+Description=Vector View Daily News Sync
+After=network.target
+
+[Service]
+Type=oneshot
+User=lab
+WorkingDirectory=/home/lab/projects/vector-view/ingestion
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=-/home/lab/projects/vector-view/.env
+ExecStart=/bin/bash -c "AUTOMATED_RUN=true /usr/bin/python3 news_daily_updater.py --max-calls 200"
+StandardOutput=append:/home/lab/projects/vector-view/ingestion/logs/systemd_news_sync.log
+StandardError=append:/home/lab/projects/vector-view/ingestion/logs/systemd_news_sync.log
+
+[Install]
+WantedBy=multi-user.target

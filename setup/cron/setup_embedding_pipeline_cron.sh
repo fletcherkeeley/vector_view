@@ -123,7 +123,7 @@ setup_cron() {
     log "Setting up cron job for embedding pipeline..."
     
     # Create wrapper script for cron execution
-    CRON_WRAPPER="${PROJECT_DIR}/run_embedding_pipeline.sh"
+    CRON_WRAPPER="${PROJECT_DIR}/setup/pipeline/run_embedding_pipeline.sh"
     
     cat > "$CRON_WRAPPER" << EOF
 #!/bin/bash
@@ -184,7 +184,7 @@ test_setup() {
     log "Testing the embedding pipeline setup..."
     
     log "Testing cron wrapper script..."
-    if bash "${PROJECT_DIR}/run_embedding_pipeline.sh"; then
+    if bash "${PROJECT_DIR}/setup/pipeline/run_embedding_pipeline.sh"; then
         success "Cron wrapper test passed"
     else
         error "Cron wrapper test failed"
@@ -201,7 +201,7 @@ show_status() {
     
     echo "Method: cron job"
     echo "Schedule: $CRON_SCHEDULE"
-    echo "Wrapper: ${PROJECT_DIR}/run_embedding_pipeline.sh"
+    echo "Wrapper: ${PROJECT_DIR}/setup/pipeline/run_embedding_pipeline.sh"
     echo "Script: $EMBEDDING_SCRIPT"
     echo "Log file: $CRON_LOG"
     echo

@@ -2,11 +2,11 @@
 """
 News Daily Updater
 
-Manages daily incremental updates of News API data.
+Manages daily incremental updates of NewsData.io API data.
 Follows the same pattern as FredDailyUpdater and YahooDailyUpdater.
 
 This module provides:
-- Intelligent API quota management (950 calls/day)
+- Intelligent API quota management (varies by NewsData.io plan)
 - Priority-based category allocation
 - Wide keyword criteria for maximum data collection
 - Comprehensive logging and monitoring
@@ -25,6 +25,7 @@ import asyncio
 import argparse
 import json
 import logging
+import os
 import sys
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -529,7 +530,7 @@ Examples:
     parser.add_argument(
         '--database-url',
         type=str,
-        default='postgresql://localhost/vector_view',
+        default='postgresql+psycopg://postgres:fred_password@localhost:5432/postgres',
         help='Database connection URL'
     )
     
@@ -568,8 +569,8 @@ Examples:
         if args.categories:
             categories = [cat.strip() for cat in args.categories.split(',')]
         
-        # Confirm live sync
-        if not args.dry_run:
+        # Confirm live sync (skip confirmation in automated mode)
+        if not args.dry_run and not os.getenv('AUTOMATED_RUN', '').lower() in ['true', '1', 'yes']:
             mode_text = f"live sync with {args.max_calls} API calls"
             if categories:
                 mode_text += f" for categories: {', '.join(categories)}"

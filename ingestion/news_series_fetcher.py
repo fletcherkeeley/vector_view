@@ -28,7 +28,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "database"))
 from unified_database_setup import DataSourceType, NewsCategory
 
-from news_client import NewsClient, NewsAPIError
+from news_client import NewsClient, NewsDataAPIError
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -400,21 +400,26 @@ class NewsSeriesFetcher:
             
             while keyword_calls < calls_per_keyword and api_calls_made < max_api_calls:
                 try:
-                    # Make API call with pagination
-                    response = await self.client.search_everything(
-                        q=keyword,
-                        from_date=start_date.strftime('%Y-%m-%d'),
-                        to_date=end_date.strftime('%Y-%m-%d'),
-                        language='en',
-                        sort_by='publishedAt',
-                        page_size=100,  # Max page size
-                        page=page
-                    )
+                    # Make API call - use archive for date range searches
+                    if (date.today() - start_date).days > 2:
+                        response = await self.client.search_archive(
+                            q=keyword,
+                            from_date=start_date.strftime('%Y-%m-%d'),
+                            to_date=end_date.strftime('%Y-%m-%d'),
+                            language='en',
+                            size=50  # NewsData.io max for free tier
+                        )
+                    else:
+                        response = await self.client.search_latest(
+                            q=keyword,
+                            language='en',
+                            size=50  # NewsData.io max for free tier
+                        )
                     
                     api_calls_made += 1
                     keyword_calls += 1
                     
-                    raw_articles = response.get('articles', [])
+                    raw_articles = response.get('results', [])
                     
                     # If no articles returned, stop paginating this keyword
                     if not raw_articles:
@@ -423,7 +428,7 @@ class NewsSeriesFetcher:
                     # Process each article
                     new_articles_count = 0
                     for raw_article in raw_articles:
-                        url = raw_article.get('url', '')
+                        url = raw_article.get('link', '')
                         if url and url not in seen_urls:
                             processed_article = self._process_article(raw_article, category)
                             if processed_article and self._is_economically_relevant(processed_article, category):
@@ -433,13 +438,13 @@ class NewsSeriesFetcher:
                     
                     logger.debug(f"Keyword '{keyword}' page {page}: {new_articles_count} new articles (API calls: {api_calls_made}/{max_api_calls})")
                     
-                    # If we got less than 100 articles, we've hit the end
-                    if len(raw_articles) < 100:
+                    # If we got less than 50 articles, we've hit the end
+                    if len(raw_articles) < 50:
                         break
                         
                     page += 1
                     
-                except NewsAPIError as e:
+                except NewsDataAPIError as e:
                     logger.warning(f"API error for keyword '{keyword}' page {page}: {e}")
                     break
                 except Exception as e:
@@ -477,16 +482,22 @@ class NewsSeriesFetcher:
         for keyword in keywords:  # Use ALL keywords for comprehensive collection
             try:
                 # Search for articles with this keyword
-                response = await self.client.search_everything(
-                    q=keyword,
-                    from_date=start_date.strftime('%Y-%m-%d'),
-                    to_date=end_date.strftime('%Y-%m-%d'),
-                    language='en',
-                    sort_by='publishedAt',
-                    page_size=min(max_articles, 100)  # API max is 100
-                )
+                if (date.today() - start_date).days > 2:
+                    response = await self.client.search_archive(
+                        q=keyword,
+                        from_date=start_date.strftime('%Y-%m-%d'),
+                        to_date=end_date.strftime('%Y-%m-%d'),
+                        language='en',
+                        size=min(max_articles, 50)  # NewsData.io max for free tier
+                    )
+                else:
+                    response = await self.client.search_latest(
+                        q=keyword,
+                        language='en',
+                        size=min(max_articles, 50)  # NewsData.io max for free tier
+                    )
                 
-                raw_articles = response.get('articles', [])
+                raw_articles = response.get('results', [])
                 
                 # Process each article
                 for raw_article in raw_articles:
@@ -498,7 +509,7 @@ class NewsSeriesFetcher:
                 if len(articles) >= max_articles:
                     break
                     
-            except NewsAPIError as e:
+            except NewsDataAPIError as e:
                 logger.error(f"Error searching for keyword '{keyword}': {e}")
                 continue
         
@@ -520,8 +531,8 @@ class NewsSeriesFetcher:
             Dictionary formatted for news_articles table, or None if invalid
         """
         try:
-            # Extract basic information
-            url = raw_article.get('url', '')
+            # Extract basic information - NewsData.io uses 'link' instead of 'url'
+            url = raw_article.get('link', '')
             if not url:
                 return None
             
@@ -529,12 +540,13 @@ class NewsSeriesFetcher:
             if not title or title.lower() == '[removed]':
                 return None
             
-            # Parse publication date
-            published_at_str = raw_article.get('publishedAt')
+            # Parse publication date - NewsData.io uses 'pubDate'
+            published_at_str = raw_article.get('pubDate')
             if not published_at_str:
                 return None
             
             try:
+                # NewsData.io uses different date format
                 published_at = datetime.fromisoformat(published_at_str.replace('Z', '+00:00'))
             except ValueError:
                 logger.warning(f"Invalid date format: {published_at_str}")
@@ -547,9 +559,8 @@ class NewsSeriesFetcher:
             # Calculate content metrics
             content_length = len(content) if content else 0
             
-            # Extract source information
-            source_info = raw_article.get('source', {})
-            source_name = source_info.get('name', 'Unknown')
+            # Extract source information - NewsData.io uses 'source_id' instead of nested source object
+            source_name = raw_article.get('source_id', 'Unknown')
             
             # Create URL hash for deduplication
             url_hash = hashlib.sha256(url.encode('utf-8')).hexdigest()
@@ -562,20 +573,20 @@ class NewsSeriesFetcher:
             category_info = self.economic_keywords.get(category, {})
             
             return {
-                'source_article_id': None,  # News API doesn't provide stable IDs
+                'source_article_id': raw_article.get('article_id'),  # NewsData.io provides stable IDs
                 'url': url,
                 'url_hash': url_hash,
                 'source_name': source_name,
                 'source_domain': self._extract_domain(url),
-                'author': raw_article.get('author'),
+                'author': raw_article.get('creator'),  # NewsData.io uses 'creator' instead of 'author'
                 'published_at': published_at,
                 'title': title,
                 'description': description,
                 'content': content,
                 'content_length': content_length,
-                'language': 'en',  # We're searching in English
-                'country': 'us',   # Assuming US focus for now
-                'news_api_metadata': raw_article,  # Store original data
+                'language': raw_article.get('language', 'en')[:10],  # Truncate to fit DB field
+                'country': self._normalize_country(raw_article.get('country', ['us'])),
+                'news_api_metadata': raw_article,  # Store original NewsData.io data
                 'economic_categories': [category],
                 'sentiment_score': None,  # Will be calculated later
                 'relevance_score': relevance_score,
@@ -618,8 +629,8 @@ class NewsSeriesFetcher:
         if article.get('author'):
             score += Decimal('0.1')
         
-        # Boost for reputable sources (configurable)
-        source_name = article.get('source', {}).get('name', '').lower()
+        # Boost for reputable sources (configurable) - NewsData.io uses source_id
+        source_name = article.get('source_id', '').lower()
         if any(source.lower() in source_name for source in self.reputable_sources):
             score += Decimal('0.1')
         
@@ -710,6 +721,30 @@ class NewsSeriesFetcher:
             return parsed.netloc
         except:
             return None
+    
+    def _normalize_country(self, country_data) -> str:
+        """Normalize country data to fit database field constraints"""
+        if isinstance(country_data, list):
+            country = country_data[0] if country_data else 'us'
+        else:
+            country = country_data or 'us'
+        
+        # Map common NewsData.io country names to short codes
+        country_mapping = {
+            'united states of america': 'us',
+            'united kingdom': 'uk',
+            'canada': 'ca',
+            'australia': 'au',
+            'germany': 'de',
+            'france': 'fr',
+            'japan': 'jp',
+            'china': 'cn',
+            'india': 'in',
+            'brazil': 'br'
+        }
+        
+        country_lower = str(country).lower()
+        return country_mapping.get(country_lower, country_lower[:10])
     
     def _estimate_impact_timeframe(self, category: str) -> str:
         """Estimate the impact timeframe for different economic categories"""

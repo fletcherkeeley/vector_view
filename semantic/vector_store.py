@@ -82,7 +82,7 @@ class SemanticVectorStore:
                 model_name=self.config.embedding_model
             )
             
-            # Initialize all collections
+            # Initialize collections
             await self._initialize_collections()
             
             logger.info("Semantic vector store initialized successfully")
@@ -90,6 +90,8 @@ class SemanticVectorStore:
             
         except Exception as e:
             logger.error(f"Failed to initialize semantic vector store: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             return False
     
     async def _initialize_collections(self):
@@ -141,7 +143,7 @@ class SemanticVectorStore:
         content: str,
         metadata: Dict[str, Any]
     ) -> bool:
-        """Add a news article to the vector store"""
+        """Add a news article to the vector store with verification"""
         try:
             # Prepare document text
             text_parts = []
@@ -152,21 +154,53 @@ class SemanticVectorStore:
                 content_truncated = content[:self.config.max_chunk_size * 3]
                 text_parts.append(f"Content: {content_truncated}")
             
+            if not text_parts:
+                logger.warning(f"No content to add for article {article_id}")
+                return False
+            
             document_text = " ".join(text_parts)
             doc_id = f"article_{article_id}"
             
-            # Add to collection
-            self.collections[CollectionType.NEWS_ARTICLES].add(
-                documents=[document_text],
-                metadatas=[metadata],
-                ids=[doc_id]
-            )
+            # Check if already exists using existing collection
+            try:
+                existing = self.collections[CollectionType.NEWS_ARTICLES].get(ids=[doc_id])
+                if existing['ids']:
+                    logger.debug(f"Article {article_id} already exists in ChromaDB")
+                    return True
+            except Exception as check_error:
+                logger.debug(f"Could not check existing article {article_id}: {check_error}")
             
-            logger.debug(f"Added news article {article_id} to vector store")
+            # Add to collection with error handling
+            try:
+                self.collections[CollectionType.NEWS_ARTICLES].add(
+                    documents=[document_text],
+                    metadatas=[metadata],
+                    ids=[doc_id]
+                )
+                logger.debug(f"Added article {article_id} to ChromaDB collection")
+            except Exception as add_error:
+                logger.error(f"ChromaDB add operation failed for article {article_id}: {add_error}")
+                return False
+            
+            # Verify insertion using the same collection instance
+            try:
+                verification = self.collections[CollectionType.NEWS_ARTICLES].get(ids=[doc_id])
+                if not verification['ids']:
+                    logger.error(f"CRITICAL: Article {article_id} not found after insertion")
+                    return False
+                else:
+                    logger.debug(f"Verified article {article_id} exists in ChromaDB")
+            except Exception as verify_error:
+                logger.error(f"Failed to verify article {article_id} insertion: {verify_error}")
+                return False
+            
+            logger.info(f"Successfully added and verified article {article_id} in ChromaDB")
             return True
             
         except Exception as e:
             logger.error(f"Failed to add news article {article_id}: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             return False
     
     async def add_economic_indicator(

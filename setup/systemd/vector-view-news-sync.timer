@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Vector View News Sync Daily
+Requires=vector-view-news-sync.service
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

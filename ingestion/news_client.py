@@ -1,12 +1,12 @@
 """
-News API Client - Enterprise Foundation Layer
+NewsData.io API Client - Enterprise Foundation Layer
 
-This module provides a robust foundation for interacting with the News API.
+This module provides a robust foundation for interacting with the NewsData.io API.
 Handles networking, rate limiting, error handling, and retries before any business logic.
 
 Key Features:
 - Environment-based configuration
-- Rate limiting (1,000 requests/day News API limit)
+- Rate limiting (varies by NewsData.io plan)
 - Comprehensive error handling and logging
 - Automatic retry logic with exponential backoff
 - Session management for connection pooling
@@ -31,28 +31,28 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 
-class NewsAPIError(Exception):
-    """Custom exception for News API specific errors"""
+class NewsDataAPIError(Exception):
+    """Custom exception for NewsData.io API specific errors"""
     pass
 
 
-class NewsRateLimitError(NewsAPIError):
-    """Raised when News API rate limits are exceeded"""
+class NewsDataRateLimitError(NewsDataAPIError):
+    """Raised when NewsData.io API rate limits are exceeded"""
     pass
 
 
 class NewsClient:
     """
-    Enterprise-grade News API client with comprehensive error handling and rate limiting.
+    Enterprise-grade NewsData.io API client with comprehensive error handling and rate limiting.
     
     This class handles all networking concerns and provides a foundation for business logic.
     """
     
-    # News API Configuration
-    BASE_URL = "https://newsapi.org/v2"
+    # NewsData.io API Configuration
+    BASE_URL = "https://newsdata.io/api/1"
     DEFAULT_TIMEOUT = 30  # seconds
-    MAX_REQUESTS_PER_DAY = 1000  # News API free tier limit
-    MAX_REQUESTS_PER_HOUR = 40   # Conservative rate limit (1000/24 = ~42/hour)
+    MAX_REQUESTS_PER_DAY = 1000  # Conservative default, varies by plan
+    MAX_REQUESTS_PER_HOUR = 40   # Conservative rate limit
     
     def __init__(self, api_key: Optional[str] = None):
         """
@@ -65,11 +65,11 @@ class NewsClient:
             NewsAPIError: If API key is not provided or found in environment
         """
         # Get API key from parameter or environment
-        self.api_key = api_key or os.getenv('NEWS_API_KEY')
+        self.api_key = api_key or os.getenv('NEWSDATA_API_KEY')
         
         if not self.api_key:
-            raise NewsAPIError(
-                "News API key is required. Provide it as parameter or set NEWS_API_KEY environment variable."
+            raise NewsDataAPIError(
+                "NewsData.io API key is required. Provide it as parameter or set NEWSDATA_API_KEY environment variable."
             )
         
         # Rate limiting setup - News API allows 1000 requests per day
@@ -85,7 +85,7 @@ class NewsClient:
         self.requests_made = 0
         self.last_request_time: Optional[datetime] = None
         
-        logger.info("News API client initialized successfully")
+        logger.info("NewsData.io API client initialized successfully")
     
     async def __aenter__(self):
         """Async context manager entry - creates HTTP session"""
@@ -104,8 +104,7 @@ class NewsClient:
                 timeout=timeout,
                 headers={
                     'User-Agent': 'AI-Financial-Intelligence-Platform/1.0',
-                    'Accept': 'application/json',
-                    'X-API-Key': self.api_key
+                    'Accept': 'application/json'
                 }
             )
             logger.debug("HTTP session created")
@@ -117,24 +116,27 @@ class NewsClient:
     )
     async def _make_request(self, endpoint: str, params: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Make HTTP request to News API with rate limiting, retries, and error handling.
+        Make HTTP request to NewsData.io API with rate limiting, retries, and error handling.
         
         Args:
-            endpoint: News API endpoint (e.g., 'everything', 'top-headlines')
+            endpoint: NewsData.io API endpoint (e.g., 'latest', 'archive')
             params: Query parameters for the request
             
         Returns:
-            Dict containing the JSON response from News API
+            Dict containing the JSON response from NewsData.io API
             
         Raises:
-            NewsAPIError: For API-specific errors
-            NewsRateLimitError: When rate limits are exceeded
+            NewsDataAPIError: For API-specific errors
+            NewsDataRateLimitError: When rate limits are exceeded
         """
         await self._ensure_session()
         
         # Apply rate limiting
         async with self.rate_limiter:
             url = f"{self.BASE_URL}/{endpoint}"
+            
+            # Add API key to params for NewsData.io
+            params['apikey'] = self.api_key
             
             try:
                 logger.debug(f"Making request to {endpoint} with params: {list(params.keys())}")
@@ -152,47 +154,47 @@ class NewsClient:
                         try:
                             data = await response.json()
                             
-                            # Check News API specific status
-                            if data.get('status') == 'ok':
+                            # Check NewsData.io specific status
+                            if data.get('status') == 'success':
                                 logger.debug(f"Successful request to {endpoint}")
                                 return data
                             else:
                                 error_code = data.get('code', 'unknown')
                                 error_message = data.get('message', 'Unknown error')
-                                logger.error(f"News API error {error_code}: {error_message}")
+                                logger.error(f"NewsData.io API error {error_code}: {error_message}")
                                 
-                                if error_code == 'rateLimited':
-                                    raise NewsRateLimitError(f"Rate limit exceeded: {error_message}")
+                                if 'rate limit' in error_message.lower() or error_code == 'rateLimited':
+                                    raise NewsDataRateLimitError(f"Rate limit exceeded: {error_message}")
                                 else:
-                                    raise NewsAPIError(f"News API error ({error_code}): {error_message}")
+                                    raise NewsDataAPIError(f"NewsData.io API error ({error_code}): {error_message}")
                                     
                         except ValueError as e:
                             logger.error(f"Invalid JSON response from {endpoint}: {response_text[:200]}")
-                            raise NewsAPIError(f"Invalid JSON response: {e}")
+                            raise NewsDataAPIError(f"Invalid JSON response: {e}")
                     
                     elif response.status == 429:
-                        logger.warning("News API rate limit exceeded")
-                        raise NewsRateLimitError("Rate limit exceeded. Please wait before making more requests.")
+                        logger.warning("NewsData.io API rate limit exceeded")
+                        raise NewsDataRateLimitError("Rate limit exceeded. Please wait before making more requests.")
                     
                     elif response.status == 401:
-                        logger.error("News API authentication failed - check API key")
-                        raise NewsAPIError("Authentication failed. Check your News API key.")
+                        logger.error("NewsData.io API authentication failed - check API key")
+                        raise NewsDataAPIError("Authentication failed. Check your NewsData.io API key.")
                     
                     elif response.status == 400:
                         logger.error(f"Bad request to {endpoint}: {response_text}")
-                        raise NewsAPIError(f"Bad request: {response_text}")
+                        raise NewsDataAPIError(f"Bad request: {response_text}")
                     
                     elif response.status == 426:
-                        logger.error("News API upgrade required")
-                        raise NewsAPIError("API upgrade required. You may have exceeded your plan limits.")
+                        logger.error("NewsData.io API upgrade required")
+                        raise NewsDataAPIError("API upgrade required. You may have exceeded your plan limits.")
                     
                     elif response.status == 500:
-                        logger.error("News API server error")
-                        raise NewsAPIError("News API server error. Please try again later.")
+                        logger.error("NewsData.io API server error")
+                        raise NewsDataAPIError("NewsData.io API server error. Please try again later.")
                     
                     else:
                         logger.error(f"HTTP {response.status} error: {response_text}")
-                        raise NewsAPIError(f"HTTP {response.status}: {response_text}")
+                        raise NewsDataAPIError(f"HTTP {response.status}: {response_text}")
             
             except aiohttp.ClientError as e:
                 logger.error(f"Network error during request to {endpoint}: {e}")
@@ -202,101 +204,96 @@ class NewsClient:
                 logger.error(f"Timeout during request to {endpoint}")
                 raise
     
-    async def search_everything(
+    async def search_latest(
         self,
         q: Optional[str] = None,
-        sources: Optional[str] = None,
-        domains: Optional[str] = None,
-        from_date: Optional[str] = None,
-        to_date: Optional[str] = None,
+        country: Optional[str] = None,
+        category: Optional[str] = None,
         language: str = 'en',
-        sort_by: str = 'publishedAt',
-        page_size: int = 20,
-        page: int = 1
+        domain: Optional[str] = None,
+        timeframe: Optional[str] = None,
+        size: int = 10
     ) -> Dict[str, Any]:
         """
-        Search through millions of articles from over 80,000 large and small news sources.
+        Search latest news from the past 48 hours using NewsData.io.
         
         Args:
             q: Keywords or phrases to search for
-            sources: Comma-separated news sources or blogs
-            domains: Comma-separated domains to restrict search
-            from_date: Date to search from (YYYY-MM-DD format)
-            to_date: Date to search to (YYYY-MM-DD format)
-            language: Language to search for articles in
-            sort_by: Sort order ('relevancy', 'popularity', 'publishedAt')
-            page_size: Number of results per page (max 100)
-            page: Page number to retrieve
+            country: Country code (e.g., 'us', 'gb', 'ca')
+            category: Category filter (business, politics, sports, etc.)
+            language: Language code (default 'en')
+            domain: Specific domain to search
+            timeframe: Time frame for search (e.g., '24h', '48h')
+            size: Number of results per page (max 50 for free tier)
             
         Returns:
-            Dict containing articles and metadata from News API
+            Dict containing articles and metadata from NewsData.io API
             
         Raises:
-            NewsAPIError: If search fails or parameters are invalid
+            NewsDataAPIError: If search fails or parameters are invalid
         """
         params = {
             'language': language,
-            'sortBy': sort_by,
-            'pageSize': min(page_size, 100),  # API max is 100
-            'page': page
+            'size': min(size, 50)  # NewsData.io free tier max
         }
         
         # Add optional parameters
         if q:
             params['q'] = q
-        if sources:
-            params['sources'] = sources
-        if domains:
-            params['domains'] = domains
-        if from_date:
-            params['from'] = from_date
-        if to_date:
-            params['to'] = to_date
-        
-        # Validate that at least one search parameter is provided
-        if not any([q, sources, domains]):
-            raise NewsAPIError("At least one of 'q', 'sources', or 'domains' must be provided")
-        
-        return await self._make_request('everything', params)
-    
-    async def get_top_headlines(
-        self,
-        q: Optional[str] = None,
-        sources: Optional[str] = None,
-        category: Optional[str] = None,
-        country: str = 'us',
-        page_size: int = 20,
-        page: int = 1
-    ) -> Dict[str, Any]:
-        """
-        Get breaking news headlines for a country or category.
-        
-        Args:
-            q: Keywords to search for in headlines
-            sources: Comma-separated news sources
-            category: Category ('business', 'entertainment', 'general', 'health', 'science', 'sports', 'technology')
-            country: Country code (e.g., 'us', 'gb', 'ca')
-            page_size: Number of results per page (max 100)
-            page: Page number to retrieve
-            
-        Returns:
-            Dict containing headlines and metadata from News API
-        """
-        params = {
-            'country': country,
-            'pageSize': min(page_size, 100),
-            'page': page
-        }
-        
-        # Add optional parameters
-        if q:
-            params['q'] = q
-        if sources:
-            params['sources'] = sources
+        if country:
+            params['country'] = country
         if category:
             params['category'] = category
+        if domain:
+            params['domain'] = domain
+        if timeframe:
+            params['timeframe'] = timeframe
         
-        return await self._make_request('top-headlines', params)
+        return await self._make_request('latest', params)
+    
+    async def search_archive(
+        self,
+        q: Optional[str] = None,
+        country: Optional[str] = None,
+        category: Optional[str] = None,
+        language: str = 'en',
+        from_date: Optional[str] = None,
+        to_date: Optional[str] = None,
+        size: int = 10
+    ) -> Dict[str, Any]:
+        """
+        Search historical news articles using NewsData.io archive endpoint.
+        
+        Args:
+            q: Keywords to search for
+            country: Country code (e.g., 'us', 'gb', 'ca')
+            category: Category filter
+            language: Language code (default 'en')
+            from_date: Start date (YYYY-MM-DD format)
+            to_date: End date (YYYY-MM-DD format)
+            size: Number of results per page (max 50 for free tier)
+            
+        Returns:
+            Dict containing articles and metadata from NewsData.io API
+        """
+        params = {
+            'language': language,
+            'size': min(size, 50)
+        }
+        
+        # Add optional parameters
+        if q:
+            params['q'] = q
+        if country:
+            params['country'] = country
+        if category:
+            params['category'] = category
+        if from_date:
+            params['from_date'] = from_date
+        if to_date:
+            params['to_date'] = to_date
+        
+        return await self._make_request('archive', params)
     
     async def get_sources(
         self,
@@ -305,7 +302,7 @@ class NewsClient:
         country: str = 'us'
     ) -> Dict[str, Any]:
         """
-        Get available news sources.
+        Get available news sources from NewsData.io.
         
         Args:
             category: Category to filter sources
@@ -327,32 +324,32 @@ class NewsClient:
     
     async def test_connection(self) -> bool:
         """
-        Test connection to News API and validate API key.
+        Test connection to NewsData.io API and validate API key.
         
         Returns:
             True if connection successful, False otherwise
         """
         try:
-            logger.info("Testing News API connection...")
+            logger.info("Testing NewsData.io API connection...")
             
             # Simple request to test API key and connectivity
-            response = await self.get_top_headlines(page_size=1)
+            response = await self.search_latest(size=1)
             
-            if response.get('status') == 'ok':
+            if response.get('status') == 'success':
                 total_results = response.get('totalResults', 0)
-                logger.info(f"News API connection test successful - {total_results} articles available")
+                logger.info(f"NewsData.io API connection test successful - {total_results} articles available")
                 return True
             else:
-                logger.error("Unexpected response format from News API")
+                logger.error("Unexpected response format from NewsData.io API")
                 return False
                 
         except Exception as e:
-            logger.error(f"News API connection test failed: {e}")
+            logger.error(f"NewsData.io API connection test failed: {e}")
             return False
     
     async def get_usage_stats(self) -> Dict[str, Any]:
         """
-        Get current usage statistics (Note: News API doesn't provide usage endpoint in free tier).
+        Get current usage statistics (Note: NewsData.io doesn't provide usage endpoint in free tier).
         This is estimated based on our request tracking.
         
         Returns:
@@ -390,7 +387,7 @@ class NewsClient:
 
 # Convenience function for quick testing
 async def test_news_client():
-    """Quick test function to verify News API client works"""
+    """Quick test function to verify NewsData.io client works"""
     async with NewsClient() as client:
         # Test connection
         success = await client.test_connection()
@@ -399,24 +396,23 @@ async def test_news_client():
         if success:
             try:
                 # Test search functionality
-                results = await client.search_everything(
+                results = await client.search_latest(
                     q="federal reserve",
-                    page_size=5,
-                    from_date=(date.today() - timedelta(days=7)).strftime('%Y-%m-%d')
+                    size=5
                 )
                 
-                articles = results.get('articles', [])
+                articles = results.get('results', [])
                 print(f"Search test: ✅ Found {len(articles)} articles about 'federal reserve'")
                 
                 if articles:
                     latest = articles[0]
                     print(f"   Latest: {latest.get('title', 'No title')[:100]}...")
-                    print(f"   Source: {latest.get('source', {}).get('name', 'Unknown')}")
-                    print(f"   Published: {latest.get('publishedAt', 'Unknown')}")
+                    print(f"   Source: {latest.get('source_id', 'Unknown')}")
+                    print(f"   Published: {latest.get('pubDate', 'Unknown')}")
                 
                 # Test sources
                 sources = await client.get_sources(category='business')
-                source_list = sources.get('sources', [])
+                source_list = sources.get('results', [])
                 print(f"Sources test: ✅ Found {len(source_list)} business news sources")
                 
             except Exception as e:
@@ -431,5 +427,5 @@ async def test_news_client():
 
 
 if __name__ == "__main__":
-    """Test the client when run directly"""
+    """Test the NewsData.io client when run directly"""
     asyncio.run(test_news_client())
