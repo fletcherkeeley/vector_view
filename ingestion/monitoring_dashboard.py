@@ -418,12 +418,14 @@ async def main():
     
     if sync_logs:
         logs_df = pd.DataFrame(sync_logs)
-        logs_df['sync_start_time'] = pd.to_datetime(logs_df['sync_start_time'])
+        logs_df['sync_start_time'] = pd.to_datetime(logs_df['sync_start_time'], utc=True)
         logs_df = logs_df.sort_values('sync_start_time', ascending=False)
         
-        # Format for display
+        # Format for display with timezone conversion
         display_df = logs_df.copy()
-        display_df['Time'] = display_df['sync_start_time'].dt.strftime('%m-%d %H:%M')
+        # Convert UTC to local timezone (MDT/MST)
+        display_df['sync_start_time_local'] = display_df['sync_start_time'].dt.tz_convert('America/Denver')
+        display_df['Time'] = display_df['sync_start_time_local'].dt.strftime('%m-%d %H:%M')
         display_df['Source'] = display_df['source_type']
         display_df['Series'] = display_df['series_id']
         display_df['Success'] = display_df['success'].map({True: '✅', False: '❌'})
