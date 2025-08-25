@@ -6,11 +6,16 @@ Agents work together to analyze economic data, market movements, and news sentim
 """
 
 from .base_agent import BaseAgent, AgentResponse, AgentContext
-from .orchestration_agent import OrchestrationAgent
+from .news_sentiment.news_sentiment_agent import NewsSentimentAgent
+from .market_intelligence import MarketIntelligenceAgent
+from .economic.economic_agent import EconomicAnalysisAgent
 
 __all__ = [
     'BaseAgent',
     'AgentResponse', 
     'AgentContext',
+    'NewsSentimentAgent',
+    'MarketIntelligenceAgent',
+    'EconomicAnalysisAgent',
     'OrchestrationAgent'
 ]

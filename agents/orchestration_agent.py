@@ -12,7 +12,7 @@ from typing import Dict, List, Optional, Any, Set
 from dataclasses import dataclass, field
 import json
 
-from .base_agent import BaseAgent, AgentType, AgentContext, AgentResponse, ConfidenceLevel
+from .base_agent import BaseAgent, AgentType, AgentContext, AgentResponse, ConfidenceLevel, StandardizedSignals
 
 logger = logging.getLogger(__name__)
 
@@ -84,13 +84,14 @@ class OrchestrationAgent(BaseAgent):
         # Workflow definitions
         self.workflows = self._initialize_workflows()
         
-        # Cross-agent state management
+        # Cross-agent state management (enhanced)
         self.shared_state = {
             "market_regime": None,
             "economic_cycle": None,
             "risk_environment": None,
             "last_updated": None
         }
+        self.standardized_state = {}  # For standardized signals
         
         logger.info("Orchestration agent initialized")
     
@@ -98,6 +99,35 @@ class OrchestrationAgent(BaseAgent):
         """Register a specialist agent with the orchestrator"""
         self.agent_registry[agent.agent_type] = agent
         logger.info(f"Registered {agent.agent_type.value} agent")
+    
+    def register_all_agents(self):
+        """Auto-register all available agents"""
+        try:
+            # Import and register Economic Agent
+            from .economic.economic_agent import EconomicAnalysisAgent
+            economic_agent = EconomicAnalysisAgent()
+            self.register_agent(economic_agent)
+            
+            # Import and register News Sentiment Agent
+            from .news_sentiment.news_sentiment_agent import NewsSentimentAgent
+            sentiment_agent = NewsSentimentAgent()
+            self.register_agent(sentiment_agent)
+            
+            # Import and register Market Intelligence Agent
+            from .market_intelligence.market_intelligence_agent import MarketIntelligenceAgent
+            market_agent = MarketIntelligenceAgent()
+            self.register_agent(market_agent)
+            
+            # Import and register Editorial Synthesis Agent
+            from .editorial.editorial_synthesis_agent import EditorialSynthesisAgent
+            editorial_agent = EditorialSynthesisAgent()
+            self.register_agent(editorial_agent)
+            
+            logger.info(f"Auto-registered {len(self.agent_registry)} agents")
+            
+        except Exception as e:
+            logger.error(f"Failed to auto-register agents: {str(e)}")
+            # Continue with whatever agents were successfully registered
     
     def _initialize_workflows(self) -> Dict[str, AgentWorkflow]:
         """Initialize predefined workflows for different query types"""
@@ -347,9 +377,20 @@ class OrchestrationAgent(BaseAgent):
                     agent_responses[agent_type.value] = result
                     context.add_agent_output(agent_type.value, result)
                     
-                    # Update shared state from agent signals
-                    if result.signals_for_other_agents:
-                        self._update_shared_state(result.signals_for_other_agents)
+                    # Update shared state from agent signals (enhanced)
+                    if result.signals_for_other_agents or result.standardized_signals:
+                        self._update_shared_state(
+                            result.signals_for_other_agents, 
+                            result.standardized_signals
+                        )
+                    
+                    # Update context with standardized signals for next agents
+                    if result.standardized_signals:
+                        signal_dict = result.standardized_signals.to_dict()
+                        if signal_dict.get('economic_cycle'):
+                            context.economic_cycle = signal_dict['economic_cycle']
+                        if signal_dict.get('risk_environment'):
+                            context.risk_environment = signal_dict['risk_environment']
             
             # Calculate overall confidence and execution time
             execution_time = (datetime.now() - start_time).total_seconds() * 1000
@@ -381,14 +422,26 @@ class OrchestrationAgent(BaseAgent):
             logger.error(f"Workflow execution failed: {str(e)}")
             raise
     
-    def _update_shared_state(self, signals: Dict[str, Any]):
+    def _update_shared_state(self, signals: Dict[str, Any], standardized_signals: Optional[StandardizedSignals] = None):
         """Update shared state based on agent signals"""
+        # Handle legacy signals format
         if "market_regime" in signals:
             self.shared_state["market_regime"] = signals["market_regime"]
         if "economic_cycle" in signals:
             self.shared_state["economic_cycle"] = signals["economic_cycle"]
         if "risk_environment" in signals:
             self.shared_state["risk_environment"] = signals["risk_environment"]
+        
+        # Handle standardized signals format (preferred)
+        if standardized_signals:
+            if standardized_signals.economic_cycle:
+                self.shared_state["economic_cycle"] = standardized_signals.economic_cycle
+            if standardized_signals.risk_environment:
+                self.shared_state["risk_environment"] = standardized_signals.risk_environment
+            # Store additional standardized signals
+            if not hasattr(self, 'standardized_state'):
+                self.standardized_state = {}
+            self.standardized_state.update(standardized_signals.to_dict())
         
         self.shared_state["last_updated"] = datetime.now()
     
@@ -403,17 +456,23 @@ class OrchestrationAgent(BaseAgent):
         # Weighted average based on agent importance and individual confidence
         weights = {
             "economic": 0.3,
-            "market": 0.3,
-            "sentiment": 0.25,
-            "synthesis": 0.15
+            "market_intelligence": 0.3,
+            "news_sentiment": 0.25,
+            "editorial_synthesis": 0.15
         }
         
         weighted_sum = 0.0
         total_weight = 0.0
         
         for agent_type, response in agent_responses.items():
-            weight = weights.get(agent_type, 0.1)
-            weighted_sum += response.confidence * weight
+            weight = weights.get(agent_type, 0.2)  # Higher default weight
+            # Boost confidence if agent has substantial data
+            confidence_boost = 1.0
+            if hasattr(response, 'key_metrics') and response.key_metrics:
+                confidence_boost = 1.2
+            
+            adjusted_confidence = min(1.0, response.confidence * confidence_boost)
+            weighted_sum += adjusted_confidence * weight
             total_weight += weight
         
         return weighted_sum / max(total_weight, 1.0)

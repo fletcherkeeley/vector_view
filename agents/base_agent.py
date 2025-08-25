@@ -66,7 +66,8 @@ class AgentContext:
     
     def _calculate_date_range(self, timeframe: str) -> Dict[str, datetime]:
         """Calculate date range from timeframe string"""
-        end_date = datetime.now()
+        # Use yesterday as end date to ensure we have data
+        end_date = datetime.now() - timedelta(days=1)
         
         timeframe_map = {
             "1d": timedelta(days=1),
@@ -103,6 +104,33 @@ class AgentContext:
 
 
 @dataclass
+class StandardizedSignals:
+    """Standardized cross-agent signals format"""
+    # Economic signals
+    economic_cycle: Optional[str] = None  # "expansion", "peak", "contraction", "trough"
+    risk_environment: Optional[str] = None  # "risk_on", "risk_off", "neutral"
+    inflation_pressure: Optional[float] = None  # -1.0 to 1.0
+    
+    # Sentiment signals
+    overall_sentiment: Optional[float] = None  # -1.0 to 1.0
+    market_relevance: Optional[float] = None  # 0.0 to 1.0
+    credibility_score: Optional[float] = None  # 0.0 to 1.0
+    
+    # Market intelligence signals
+    market_correlation: Optional[float] = None  # -1.0 to 1.0
+    volatility_forecast: Optional[float] = None  # 0.0 to 1.0
+    sector_impact: Optional[Dict[str, float]] = None
+    
+    # Editorial signals
+    narrative_strength: Optional[float] = None  # 0.0 to 1.0
+    synthesis_quality: Optional[float] = None  # 0.0 to 1.0
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary, excluding None values"""
+        return {k: v for k, v in self.__dict__.items() if v is not None}
+
+
+@dataclass
 class AgentResponse:
     """
     Standardized response format for all agents
@@ -121,8 +149,9 @@ class AgentResponse:
     timeframe_analyzed: str
     execution_time_ms: float
     
-    # Cross-agent communication
+    # Cross-agent communication (enhanced)
     signals_for_other_agents: Dict[str, Any] = field(default_factory=dict)
+    standardized_signals: Optional[StandardizedSignals] = None
     uncertainty_factors: List[str] = field(default_factory=list)
     
     # Metadata
@@ -131,7 +160,7 @@ class AgentResponse:
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert response to dictionary for serialization"""
-        return {
+        result = {
             "agent_type": self.agent_type.value,
             "confidence": self.confidence,
             "confidence_level": self.confidence_level.value,
@@ -146,6 +175,15 @@ class AgentResponse:
             "timestamp": self.timestamp.isoformat(),
             "version": self.version
         }
+        if self.standardized_signals:
+            result["standardized_signals"] = self.standardized_signals.to_dict()
+        return result
+    
+    def get_standardized_signals(self) -> StandardizedSignals:
+        """Get or create standardized signals object"""
+        if self.standardized_signals is None:
+            self.standardized_signals = StandardizedSignals()
+        return self.standardized_signals
 
 
 class BaseAgent(ABC):

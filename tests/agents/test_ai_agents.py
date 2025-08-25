@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from agents.orchestration_agent import OrchestrationAgent
-from agents.economic_agent import EconomicAnalysisAgent
+from agents.economic import EconomicAnalysisAgent
 from agents.ai_service import OllamaService
 from agents.base_agent import AgentContext
 

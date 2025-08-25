@@ -7,13 +7,24 @@ financial news analysis capabilities.
 
 import asyncio
 import logging
+import sys
+import os
 from datetime import datetime, timedelta
-from typing import Dict, Any
+from typing import Dict, List, Any
+import chromadb
 
-# Import all agents
+# Suppress ChromaDB telemetry errors
+os.environ['ANONYMIZED_TELEMETRY'] = 'False'
+os.environ['CHROMA_TELEMETRY_DISABLED'] = 'True'
+logging.getLogger('chromadb.telemetry.product.posthog').setLevel(logging.CRITICAL)
+logging.getLogger('chromadb.telemetry').setLevel(logging.CRITICAL)
+
+# Add project root to path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from agents.base_agent import AgentContext, AgentType
 from agents.orchestration_agent import OrchestrationAgent
-from agents.economic_agent import EconomicAnalysisAgent
+from agents.economic import EconomicAnalysisAgent
 from agents.market_intelligence_agent import MarketIntelligenceAgent
 from agents.news_sentiment_agent import NewsSentimentAgent
 from agents.editorial_synthesis_agent import EditorialSynthesisAgent
@@ -44,10 +55,15 @@ class WSJAgentTestSuite:
         self.agents = {
             'orchestration': OrchestrationAgent(self.database_url, chroma_client, self.ai_service),
             'economic': EconomicAnalysisAgent(database_url=self.database_url),
-            'market_intelligence': MarketIntelligenceAgent(db_connection, chroma_client, self.ai_service),
-            'news_sentiment': NewsSentimentAgent(db_connection, chroma_client, self.ai_service),
-            'editorial_synthesis': EditorialSynthesisAgent(db_connection, chroma_client, self.ai_service)
+            'market_intelligence': MarketIntelligenceAgent(db_connection, chroma_client, self.ai_service, self.database_url),
+            'news_sentiment': NewsSentimentAgent(db_connection, chroma_client, self.ai_service, self.database_url),
+            'editorial_synthesis': EditorialSynthesisAgent(db_connection, chroma_client, self.ai_service, self.database_url)
         }
+        
+        # Register agents with orchestrator
+        for agent_name, agent in self.agents.items():
+            if agent_name != 'orchestration':
+                self.agents['orchestration'].register_agent(agent)
         
         # Test scenarios
         self.test_scenarios = [
@@ -114,10 +130,19 @@ class WSJAgentTestSuite:
         """Test each agent individually with detailed output display"""
         agent_results = {}
         
-        test_context = AgentContext(
+        # Create test context with recent data (last week)
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=7)
+        
+        context = AgentContext(
             query="Test market analysis with current economic conditions",
             query_type="market_analysis",
-            timeframe="1d"
+            timeframe="1w",
+            data_sources=["fred", "yahoo_finance", "news"],
+            date_range={
+                "start": start_date,
+                "end": end_date
+            }
         )
         
         for agent_name, agent in self.agents.items():
@@ -125,7 +150,7 @@ class WSJAgentTestSuite:
                 logger.info(f"Testing {agent_name} agent...")
                 start_time = datetime.now()
                 
-                response = await agent.analyze(test_context)
+                response = await agent.analyze(context)
                 
                 execution_time = (datetime.now() - start_time).total_seconds() * 1000
                 

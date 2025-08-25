@@ -8,7 +8,7 @@ import logging
 from datetime import datetime, timedelta
 
 from agents.base_agent import AgentContext
-from agents.economic_agent import EconomicAnalysisAgent
+from agents.economic import EconomicAnalysisAgent
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

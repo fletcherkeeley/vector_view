@@ -1,0 +1,70 @@
+{
+  "timestamp": "2025-08-25T14:40:22.572294",
+  "results": [
+    {
+      "scenario": "Employment Analysis",
+      "success": true,
+      "confidence": 0.875,
+      "insights_count": 6,
+      "execution_time": 20439.651,
+      "signals": [
+        "economic_cycle",
+        "inflation_pressure",
+        "monetary_policy_stance",
+        "yield_curve_signal"
+      ]
+    },
+    {
+      "scenario": "Inflation Analysis",
+      "success": true,
+      "confidence": 0.8583704637572507,
+      "insights_count": 6,
+      "execution_time": 22991.904000000002,
+      "signals": [
+        "economic_cycle",
+        "inflation_pressure",
+        "monetary_policy_stance",
+        "yield_curve_signal"
+      ]
+    },
+    {
+      "scenario": "Federal Reserve Policy",
+      "success": true,
+      "confidence": 0.875,
+      "insights_count": 6,
+      "execution_time": 24777.466,
+      "signals": [
+        "economic_cycle",
+        "inflation_pressure",
+        "monetary_policy_stance",
+        "yield_curve_signal"
+      ]
+    },
+    {
+      "scenario": "Economic Growth",
+      "success": true,
+      "confidence": 0.89,
+      "insights_count": 6,
+      "execution_time": 28621.185,
+      "signals": [
+        "economic_cycle",
+        "inflation_pressure",
+        "monetary_policy_stance",
+        "yield_curve_signal"
+      ]
+    },
+    {
+      "scenario": "General Economic Health",
+      "success": true,
+      "confidence": 0.375,
+      "insights_count": 6,
+      "execution_time": 26707.749,
+      "signals": [
+        "economic_cycle",
+        "inflation_pressure",
+        "monetary_policy_stance",
+        "yield_curve_signal"
+      ]
+    }
+  ]
+}
