@@ -63,3 +63,7 @@ huggingface_hub==0.24.6
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
 python-multipart==0.0.6
+
+# Dashboard and visualization
+streamlit==1.28.1
+plotly==5.17.0

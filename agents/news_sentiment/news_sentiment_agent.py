@@ -61,6 +61,18 @@ class NewsSentimentAgent(BaseAgent):
         self.context_builder = NewsSentimentContextBuilder(
             ai_service=self.ai_service
         )
+    
+    def _expand_timeframe_for_analysis(self, timeframe: str) -> str:
+        """Expand timeframe to access more historical data for better analysis"""
+        timeframe_expansion = {
+            "1d": "30d",    # Daily briefing uses 30 days of news
+            "1w": "90d",    # Weekly analysis uses 3 months
+            "1m": "180d",   # Monthly analysis uses 6 months  
+            "3m": "365d",   # Quarterly analysis uses 1 year
+            "6m": "730d",   # Semi-annual uses 2 years
+            "1y": "1095d"   # Annual uses 3 years
+        }
+        return timeframe_expansion.get(timeframe, "365d")
 
     async def analyze(self, context: AgentContext) -> AgentResponse:
         """
@@ -69,11 +81,12 @@ class NewsSentimentAgent(BaseAgent):
         try:
             start_time = datetime.now()
             
-            # Get news articles for analysis using data handler
+            # Get news articles for analysis using data handler - use broader timeframe for more data
+            effective_timeframe = self._expand_timeframe_for_analysis(context.timeframe)
             articles = await self.data_handler.get_news_articles(
                 query=context.query,
-                timeframe=context.timeframe,
-                max_results=50,
+                timeframe=effective_timeframe,
+                max_results=500,  # Increased to access more of the 5,290 available articles
                 min_relevance=0.0
             )
             
@@ -104,10 +117,9 @@ class NewsSentimentAgent(BaseAgent):
                     ai_result += "Overall sentiment is neutral with mixed market signals. "
                 
                 # Add entity analysis
-                entities = getattr(narrative_analysis, 'entities', [])
-                if entities:
-                    top_entities = entities[:3]
-                    ai_result += f"Key entities mentioned: {', '.join([str(e) for e in top_entities])}. "
+                if hasattr(entities, 'companies') and entities.companies:
+                    top_entities = entities.companies[:3]
+                    ai_result += f"Key companies mentioned: {', '.join(top_entities)}. "
                 
                 # Add narrative insights
                 narrative_score = getattr(narrative_analysis, 'narrative_score', 0.5)
@@ -162,7 +174,7 @@ class NewsSentimentAgent(BaseAgent):
                 analysis={
                     'sentiment_analysis': getattr(sentiment_analysis, '__dict__', {}),
                     'narrative_analysis': getattr(narrative_analysis, '__dict__', {}),
-                    'entities': getattr(entities, '__dict__', []) if hasattr(entities, '__dict__') else entities,
+                    'entities': getattr(entities, '__dict__', {}) if hasattr(entities, '__dict__') else {},
                     'articles_analyzed': len(articles),
                     'dominant_themes': getattr(narrative_analysis, 'dominant_themes', [])[:5],
                     'analysis_context': analysis_context
@@ -186,7 +198,10 @@ class NewsSentimentAgent(BaseAgent):
             return response
             
         except Exception as e:
-            logger.error(f"News Sentiment Agent analysis failed: {str(e)}")
+            logger.info("News Sentiment Agent initialized with modular components")
+            self.context_builder = NewsSentimentContextBuilder(
+                ai_service=self.ai_service
+            )
             return AgentResponse(
                 agent_type=self.agent_type,
                 confidence=0.0,

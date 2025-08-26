@@ -100,11 +100,11 @@ class NewsSentimentDataHandler:
                 logger.warning("No news collection available")
                 return []
             
-            # Perform semantic search
-            search_query = query if query else "financial news market"
+            # Perform semantic search with broader query
+            search_query = query if query else "financial news market economy"
             results = collection.query(
                 query_texts=[search_query],
-                n_results=max_results
+                n_results=min(max_results * 3, 1000)  # Get more results to filter from
             )
             
             articles = []
@@ -114,8 +114,10 @@ class NewsSentimentDataHandler:
                     distance = results['distances'][0][i] if results.get('distances') else 0.0
                     relevance_score = 1.0 - distance
                     
-                    # Filter by relevance threshold
-                    if relevance_score < min_relevance:
+                    # Filter by relevance threshold - use more permissive filtering
+                    # ChromaDB distances can be > 1.0, creating negative relevance scores
+                    # Accept articles with distance < 2.0 (relevance > -1.0) for broader coverage
+                    if distance > 2.0:  # Skip only very irrelevant articles
                         continue
                     
                     # Extract and validate metadata
@@ -138,10 +140,11 @@ class NewsSentimentDataHandler:
                     
                     articles.append(article)
             
-            # Sort by relevance score
+            # Sort by relevance score and limit to requested amount
             articles.sort(key=lambda x: x['relevance_score'], reverse=True)
+            articles = articles[:max_results]
             
-            logger.info(f"Retrieved {len(articles)} news articles for query: '{search_query}'")
+            logger.info(f"Retrieved {len(articles)} news articles for query: '{search_query}' (from {len(results['documents'][0])} candidates)")
             return articles
             
         except Exception as e:

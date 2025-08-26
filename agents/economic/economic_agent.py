@@ -147,12 +147,12 @@ class EconomicAnalysisAgent(BaseAgent):
         end_date = datetime.now() - timedelta(days=1)
         
         timeframe_map = {
-            "1d": timedelta(days=30),   # Need more data for analysis
-            "1w": timedelta(days=90),   # 3 months for weekly analysis
-            "1m": timedelta(days=180),  # 6 months for monthly analysis
-            "3m": timedelta(days=365),  # 1 year for quarterly analysis
-            "6m": timedelta(days=730),  # 2 years for semi-annual
-            "1y": timedelta(days=1095)  # 3 years for annual analysis
+            "1d": timedelta(days=365),   # 1 year for daily briefing analysis
+            "1w": timedelta(days=730),   # 2 years for weekly analysis
+            "1m": timedelta(days=1095),  # 3 years for monthly analysis
+            "3m": timedelta(days=1460),  # 4 years for quarterly analysis
+            "6m": timedelta(days=1825),  # 5 years for semi-annual
+            "1y": timedelta(days=1825)   # 5 years for annual analysis
         }
         
         delta = timeframe_map.get(timeframe, timedelta(days=365))  # Default to 1 year

@@ -98,12 +98,13 @@ class MarketContextBuilder:
                     correlation_strength="none"
                 )
             
-            # Aggregate news sentiment by hour
+            # Aggregate news sentiment by day for more realistic correlation
             news_df = pd.DataFrame(news_data)
             news_df['timestamp'] = pd.to_datetime(news_df['timestamp'])
-            news_df['hour'] = news_df['timestamp'].dt.floor('H')
+            news_df['date'] = news_df['timestamp'].dt.date
             
-            hourly_sentiment = news_df.groupby('hour')['sentiment_score'].mean().reset_index()
+            daily_sentiment = news_df.groupby('date')['sentiment_score'].mean().reset_index()
+            daily_sentiment['date'] = pd.to_datetime(daily_sentiment['date'])
             
             # Calculate market returns using SPY as primary indicator
             market_returns = self._calculate_market_returns(market_data)
@@ -111,16 +112,16 @@ class MarketContextBuilder:
             if market_returns.empty:
                 return NewsMarketCorrelation(0.0, 0.0, 0, 0, "insufficient_data")
             
-            # Merge sentiment and market data
+            # Merge sentiment and market data on daily basis
             merged_data = pd.merge(
-                hourly_sentiment, 
+                daily_sentiment, 
                 market_returns, 
-                left_on='hour',
+                left_on='date',
                 right_index=True,
                 how='inner'
             )
             
-            if len(merged_data) < 3:
+            if len(merged_data) < 3:  # Need at least 3 days for correlation
                 return NewsMarketCorrelation(
                     correlation_coefficient=0.0,
                     statistical_significance=0.0,
@@ -314,10 +315,10 @@ class MarketContextBuilder:
         # Base confidence from correlation strength
         correlation_confidence = correlation_analysis.statistical_significance
         
-        # Data quality confidence
-        sample_confidence = min(1.0, correlation_analysis.sample_size / 20)
-        news_confidence = min(1.0, news_count / 10)
-        market_confidence = min(1.0, market_data_points / 100)
+        # Data quality confidence - proper quality thresholds
+        sample_confidence = min(1.0, correlation_analysis.sample_size / 50)  # Require substantial sample
+        news_confidence = min(1.0, news_count / 100)  # Require many news articles
+        market_confidence = min(1.0, market_data_points / 500)  # Require substantial market data
         
         # Combined confidence
         overall_confidence = (
@@ -341,10 +342,10 @@ class MarketContextBuilder:
             # Calculate returns
             returns = market_data[primary_indicator].pct_change().dropna()
             
-            # Aggregate to hourly if needed
-            hourly_returns = returns.resample('H').last().dropna()
+            # Aggregate to daily for correlation analysis
+            daily_returns = returns.resample('D').last().dropna()
             
-            return pd.DataFrame({'returns': hourly_returns})
+            return pd.DataFrame({'returns': daily_returns})
             
         except Exception as e:
             logger.error(f"Market returns calculation failed: {str(e)}")

@@ -90,8 +90,8 @@ class MarketDataHandler:
             # Use provided indicators or default key indicators
             target_indicators = indicators or self.key_indicators
             
-            # Use provided date range
-            cutoff_time = start_date
+            # Use broader date range to get more market data points for correlation
+            cutoff_time = start_date - timedelta(days=30)  # Get 30 days of market data
             
             # Separate FRED and Yahoo Finance indicators
             fred_indicators = [ind for ind in target_indicators if ind in self.fred_indicators]
