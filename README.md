@@ -180,12 +180,12 @@ cp .env.example .env
 # Edit .env with your API keys
 
 # 5. Run initial data ingestion
-python ingestion/fred_bulk_loader.py
-python ingestion/yahoo_bulk_loader.py
-python ingestion/news_historical_backfill.py
+python -m ingestion.fred.fred_bulk_loader
+python -m ingestion.yahoo.yahoo_bulk_loader
+python -m ingestion.news.news_historical_backfill
 
 # 6. Start monitoring dashboard
-streamlit run ingestion/monitoring_dashboard.py
+streamlit run ingestion/utilities/monitoring_dashboard.py
 ```
 
 ## 📁 Current Project Structure

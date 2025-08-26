@@ -31,7 +31,7 @@ mkdir -p "$INGESTION_DIR/logs"
 mkdir -p "$INGESTION_DIR/cron_logs"
 
 # Create the cron script
-CRON_SCRIPT="$INGESTION_DIR/run_daily_news_sync.sh"
+CRON_SCRIPT="$INGESTION_DIR/utilities/run_daily_news_sync.sh"
 cat > "$CRON_SCRIPT" << EOF
 #!/bin/bash
 # Daily News Sync Cron Script
@@ -81,10 +81,10 @@ echo -e "${GREEN}✅ Created cron script: $CRON_SCRIPT${NC}"
 CRON_ENTRY="0 6 * * * $CRON_SCRIPT"
 
 # Check if cron job already exists
-if crontab -l 2>/dev/null | grep -q "run_daily_news_sync.sh"; then
+if crontab -l 2>/dev/null | grep -q "utilities/run_daily_news_sync.sh"; then
     echo -e "${YELLOW}⚠️  Cron job already exists. Updating...${NC}"
     # Remove existing entry and add new one
-    (crontab -l 2>/dev/null | grep -v "run_daily_news_sync.sh"; echo "$CRON_ENTRY") | crontab -
+    (crontab -l 2>/dev/null | grep -v "utilities/run_daily_news_sync.sh"; echo "$CRON_ENTRY") | crontab -
 else
     echo -e "${BLUE}📅 Adding new cron job...${NC}"
     # Add new cron job
@@ -94,7 +94,7 @@ fi
 echo -e "${GREEN}✅ Cron job configured to run daily at 6:00 AM${NC}"
 
 # Create monitoring script
-MONITOR_SCRIPT="$INGESTION_DIR/check_daily_sync_health.sh"
+MONITOR_SCRIPT="$INGESTION_DIR/utilities/check_daily_sync_health.sh"
 cat > "$MONITOR_SCRIPT" << EOF
 #!/bin/bash
 # Daily News Sync Health Check Script

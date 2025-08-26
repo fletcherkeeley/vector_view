@@ -77,7 +77,7 @@ main() {
     
     # Yahoo Finance Recovery
     log "Phase 1: Yahoo Finance Data Recovery (53 symbols)"
-    if run_ingestion "yahoo" "python yahoo_daily_updater.py" "Yahoo Finance ingestion"; then
+    if run_ingestion "yahoo" "python -m ingestion.yahoo.yahoo_daily_updater" "Yahoo Finance ingestion"; then
         yahoo_success=true
     fi
     
@@ -85,7 +85,7 @@ main() {
     
     # FRED API Recovery  
     log "Phase 2: FRED API Data Recovery (16 series)"
-    if run_ingestion "fred" "python fred_daily_updater.py" "FRED API ingestion"; then
+    if run_ingestion "fred" "python -m ingestion.fred.fred_daily_updater" "FRED API ingestion"; then
         fred_success=true
     fi
     
@@ -93,7 +93,7 @@ main() {
     
     # News API Recovery
     log "Phase 3: News API Data Recovery (10 categories)"
-    if run_ingestion "news" "python news_daily_updater.py --database-url 'postgresql+psycopg://postgres:fred_password@localhost:5432/postgres'" "News API ingestion"; then
+    if run_ingestion "news" "python -m ingestion.news.news_daily_updater --database-url 'postgresql+psycopg://postgres:fred_password@localhost:5432/postgres'" "News API ingestion"; then
         news_success=true
     fi
     

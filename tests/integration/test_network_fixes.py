@@ -10,8 +10,8 @@ from pathlib import Path
 # Add ingestion directory to path
 sys.path.insert(0, str(Path(__file__).parent / 'ingestion'))
 
-from yahoo_finance_client import YahooFinanceClient
-from fred_client import FredClient
+from ingestion.yahoo.yahoo_finance_client import YahooFinanceClient
+from ingestion.fred.fred_client import FredClient
 
 async def test_yahoo_finance():
     """Test Yahoo Finance with conservative settings"""

@@ -19,8 +19,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 VENV_PATH="${PROJECT_DIR}/venv"
-UPDATER_SCRIPT="${SCRIPT_DIR}/ingestion/news_daily_updater.py"
-LOG_DIR="${SCRIPT_DIR}/ingestion/logs"
+UPDATER_SCRIPT="${PROJECT_DIR}/ingestion/news/news_daily_updater.py"
+LOG_DIR="${PROJECT_DIR}/ingestion/logs"
 CRON_LOG="${LOG_DIR}/news_daily_cron.log"
 
 # Default schedule (6:00 AM daily)

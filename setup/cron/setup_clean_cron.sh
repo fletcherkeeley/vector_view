@@ -15,13 +15,13 @@ sudo crontab -r -u lab 2>/dev/null || true
 CLEAN_CRON_JOBS=$(cat << EOF
 # Vector View Financial Intelligence Platform - Daily Data Sync
 # FRED Economic Data - Run at 6:00 AM daily
-0 6 * * * cd $INGESTION_DIR && /usr/bin/python3 fred_daily_updater.py >> logs/fred_cron.log 2>&1
+0 6 * * * cd $PROJECT_DIR && /usr/bin/python3 -m ingestion.fred.fred_daily_updater >> ingestion/logs/fred_cron.log 2>&1
 
 # Yahoo Finance Market Data - Run at 6:30 AM daily (after FRED)
-30 6 * * * cd $INGESTION_DIR && /usr/bin/python3 yahoo_daily_updater.py >> logs/yahoo_cron.log 2>&1
+30 6 * * * cd $PROJECT_DIR && /usr/bin/python3 -m ingestion.yahoo.yahoo_daily_updater >> ingestion/logs/yahoo_cron.log 2>&1
 
 # News Data Sync - Run at 7:00 AM daily (after market data)
-0 7 * * * cd $INGESTION_DIR && AUTOMATED_RUN=true /usr/bin/python3 news_daily_updater.py --max-calls 200 >> logs/news_cron.log 2>&1
+0 7 * * * cd $PROJECT_DIR && AUTOMATED_RUN=true /usr/bin/python3 -m ingestion.news.news_daily_updater --max-calls 200 >> ingestion/logs/news_cron.log 2>&1
 
 # Embedding Pipeline - Run at 7:30 AM daily (after news sync)
 30 7 * * * cd $PROJECT_DIR && /usr/bin/python3 semantic/embedding_pipeline.py >> ingestion/logs/embedding_cron.log 2>&1
