@@ -11,13 +11,11 @@ from datetime import datetime
 import os
 
 # Add project root to path
-project_root = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, project_root)
-sys.path.insert(0, os.path.join(project_root, 'ingestion'))
-sys.path.insert(0, os.path.join(project_root, 'semantic'))
 
-from news_daily_updater import NewsDailyUpdater
-from embedding_pipeline import create_embedding_pipeline
+from ingestion.news.news_daily_updater import NewsDailyUpdater
+from semantic.embedding_pipeline import create_embedding_pipeline
 
 # Configure logging
 logging.basicConfig(
@@ -27,10 +25,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-async def run_daily_pipeline(max_calls: int = 50, categories: str = None):
+async def run_daily_pipeline(max_calls: int = 440, categories: str = None):
     """
     Run the complete daily pipeline:
-    1. Fetch new articles
+    1. Fetch new articles (up to 440 API calls)
     2. Run embedding pipeline
     """
     start_time = datetime.utcnow()
@@ -89,7 +87,7 @@ async def main():
     import argparse
     
     parser = argparse.ArgumentParser(description='Daily Pipeline Runner for Cron Jobs')
-    parser.add_argument('--max-calls', type=int, default=50, help='Max API calls')
+    parser.add_argument('--max-calls', type=int, default=440, help='Max API calls')
     parser.add_argument('--categories', type=str, help='Comma-separated categories')
     
     args = parser.parse_args()

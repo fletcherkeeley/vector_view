@@ -14,6 +14,7 @@ Key Features:
 Depends on: news_client.py for networking foundation
 """
 
+import asyncio
 import logging
 import hashlib
 import os
@@ -400,20 +401,30 @@ class NewsSeriesFetcher:
             
             while keyword_calls < calls_per_keyword and api_calls_made < max_api_calls:
                 try:
-                    # Make API call - use archive for date range searches
+                    # Add rate limiting delay between API calls
+                    if api_calls_made > 0:
+                        await asyncio.sleep(0.5)  # 500ms delay between calls
+                    
+                    # Make API call with timeout - use archive for date range searches
                     if (date.today() - start_date).days > 2:
-                        response = await self.client.search_archive(
-                            q=keyword,
-                            from_date=start_date.strftime('%Y-%m-%d'),
-                            to_date=end_date.strftime('%Y-%m-%d'),
-                            language='en',
-                            size=50  # NewsData.io max for free tier
+                        response = await asyncio.wait_for(
+                            self.client.search_archive(
+                                q=keyword,
+                                from_date=start_date.strftime('%Y-%m-%d'),
+                                to_date=end_date.strftime('%Y-%m-%d'),
+                                language='en',
+                                size=50  # NewsData.io max for free tier
+                            ),
+                            timeout=15.0  # 15 second timeout per API call
                         )
                     else:
-                        response = await self.client.search_latest(
-                            q=keyword,
-                            language='en',
-                            size=50  # NewsData.io max for free tier
+                        response = await asyncio.wait_for(
+                            self.client.search_latest(
+                                q=keyword,
+                                language='en',
+                                size=50  # NewsData.io max for free tier
+                            ),
+                            timeout=15.0  # 15 second timeout per API call
                         )
                     
                     api_calls_made += 1
@@ -444,6 +455,10 @@ class NewsSeriesFetcher:
                         
                     page += 1
                     
+                except asyncio.TimeoutError:
+                    logger.warning(f"Timeout for keyword '{keyword}' page {page} - skipping")
+                    api_calls_made += 1  # Count timeout as API call
+                    break
                 except NewsDataAPIError as e:
                     logger.warning(f"API error for keyword '{keyword}' page {page}: {e}")
                     break

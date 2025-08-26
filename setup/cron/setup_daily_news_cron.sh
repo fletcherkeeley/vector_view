@@ -54,7 +54,7 @@ echo "Working directory: \$(pwd)" >> "\$LOG_FILE"
 echo "Python path: $PYTHON_PATH" >> "\$LOG_FILE"
 
 # Run the scheduler with automated flag
-AUTOMATED_RUN=true $PYTHON_PATH news_daily_updater.py --max-calls 200 >> "\$LOG_FILE" 2>&1
+AUTOMATED_RUN=true $PYTHON_PATH news_daily_updater.py --max-calls 440 >> "\$LOG_FILE" 2>&1
 EXIT_CODE=\$?
 
 echo "Daily sync completed at \$(date) with exit code \$EXIT_CODE" >> "\$LOG_FILE"
@@ -181,7 +181,7 @@ User=$USER
 WorkingDirectory=$INGESTION_DIR
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 EnvironmentFile=-$PROJECT_DIR/.env
-ExecStart=/bin/bash -c "AUTOMATED_RUN=true $PYTHON_PATH news_daily_updater.py --max-calls 200"
+ExecStart=/bin/bash -c "AUTOMATED_RUN=true $PYTHON_PATH news_daily_updater.py --max-calls 440"
 StandardOutput=append:$INGESTION_DIR/logs/systemd_news_sync.log
 StandardError=append:$INGESTION_DIR/logs/systemd_news_sync.log
 

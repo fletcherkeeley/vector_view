@@ -15,16 +15,15 @@ import os
 import chromadb
 from chromadb.config import Settings
 
-# Setup paths
-current_working_dir = Path(os.getcwd())
-if current_working_dir.name == "ingestion":
-    project_root = current_working_dir.parent
-else:
-    project_root = current_working_dir
-
+# Setup paths - always resolve relative to this file's location
+script_dir = Path(__file__).parent
+project_root = script_dir.parent.parent  # utilities -> ingestion -> vector-view
 database_dir = project_root / "database"
+
+# Add paths to sys.path
 sys.path.insert(0, str(project_root))
 sys.path.insert(0, str(database_dir))
+sys.path.insert(0, str(script_dir))
 
 from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
@@ -38,8 +37,22 @@ try:
         NewsArticles, DataSourceType
     )
 except ImportError as e:
-    st.error(f"Failed to import database models: {e}")
-    st.stop()
+    try:
+        # Fallback: try direct import from database directory
+        sys.path.insert(0, str(Path(__file__).parent.parent.parent / "database"))
+        from unified_database_setup import (
+            DataSeries, MarketAssets, TimeSeriesObservation, DataSyncLog, 
+            NewsArticles, DataSourceType
+        )
+    except ImportError as e2:
+        st.error(f"Failed to import database models: {e2}")
+        st.error(f"Script dir: {script_dir}")
+        st.error(f"Project root: {project_root}")
+        st.error(f"Database dir: {database_dir}")
+        st.error(f"Database dir exists: {database_dir.exists()}")
+        if database_dir.exists():
+            st.error(f"Files in database dir: {list(database_dir.glob('*.py'))}")
+        st.stop()
 
 load_dotenv()
 
@@ -59,9 +72,17 @@ class DatabaseMonitor:
         self.AsyncSessionLocal = None
     
     async def initialize(self):
-        """Initialize database connection"""
+        """Initialize database connection with connection pooling"""
         try:
-            self.engine = create_async_engine(self.database_url, echo=False)
+            self.engine = create_async_engine(
+                self.database_url, 
+                echo=False,
+                pool_size=5,
+                max_overflow=10,
+                pool_pre_ping=True,
+                pool_recycle=3600,
+                pool_timeout=30
+            )
             self.AsyncSessionLocal = sessionmaker(
                 bind=self.engine, class_=AsyncSession, expire_on_commit=False
             )
@@ -79,6 +100,44 @@ class DatabaseMonitor:
                     text("SELECT pg_size_pretty(pg_database_size(current_database())) as size")
                 )
                 db_size = db_size_result.scalar()
+                
+                # News sync metrics for today
+                news_sync_today = await session.execute(text("""
+                    WITH category_extract AS (
+                        SELECT 
+                            COUNT(*) as articles_today,
+                            COUNT(CASE WHEN has_embeddings THEN 1 END) as embedded_today,
+                            AVG(relevance_score) as avg_relevance,
+                            AVG(data_quality_score) as avg_quality
+                        FROM news_articles 
+                        WHERE DATE(created_at) = CURRENT_DATE
+                    ),
+                    unique_categories AS (
+                        SELECT DISTINCT jsonb_array_elements_text(economic_categories) as category
+                        FROM news_articles 
+                        WHERE DATE(created_at) = CURRENT_DATE
+                        AND economic_categories IS NOT NULL
+                    )
+                    SELECT 
+                        ce.*,
+                        STRING_AGG(uc.category, ', ' ORDER BY uc.category) as categories_processed
+                    FROM category_extract ce
+                    CROSS JOIN unique_categories uc
+                    GROUP BY ce.articles_today, ce.embedded_today, ce.avg_relevance, ce.avg_quality
+                """))
+                
+                news_today = news_sync_today.fetchone()
+                
+                # API usage estimation (approximate based on articles/categories)
+                api_calls_estimate = await session.execute(text("""
+                    SELECT 
+                        COUNT(DISTINCT economic_categories::text) * 25 as estimated_api_calls
+                    FROM news_articles 
+                    WHERE DATE(created_at) = CURRENT_DATE
+                    AND economic_categories IS NOT NULL
+                """))
+                
+                api_estimate = api_calls_estimate.scalar() or 0
                 
                 # Table sizes and row counts
                 table_metrics = await session.execute(text("""
@@ -174,7 +233,15 @@ class DatabaseMonitor:
                     'news_embedded': news_embedded.scalar() or 0,
                     'latest_observation': latest_observation.scalar(),
                     'latest_news': latest_news.scalar(),
-                    'latest_embedding_run': latest_embedding_run.scalar()
+                    'latest_embedding_run': latest_embedding_run.scalar(),
+                    'news_sync_today': {
+                        'articles_pulled': news_today[0] if news_today else 0,
+                        'articles_embedded': news_today[1] if news_today else 0,
+                        'avg_relevance': round(news_today[2] or 0, 3),
+                        'avg_quality': round(news_today[3] or 0, 3),
+                        'categories_processed': news_today[4] if news_today else 'None',
+                        'estimated_api_calls': api_estimate
+                    }
                 }
                 
         except Exception as e:
@@ -318,6 +385,41 @@ async def main():
     with col4:
         total_vectors = sum(m['documents'] for m in chroma_metrics)
         st.metric("Vector Documents", f"{total_vectors:,}")
+    
+    st.markdown("---")
+    
+    # Today's News Sync Status
+    st.subheader("📰 Today's News Sync Status")
+    news_today = db_metrics.get('news_sync_today', {})
+    
+    col1, col2, col3, col4, col5 = st.columns(5)
+    
+    with col1:
+        articles_pulled = news_today.get('articles_pulled', 0)
+        st.metric("Articles Pulled", f"{articles_pulled:,}")
+    
+    with col2:
+        api_calls = news_today.get('estimated_api_calls', 0)
+        st.metric("Est. API Calls", f"{api_calls}")
+    
+    with col3:
+        articles_embedded = news_today.get('articles_embedded', 0)
+        st.metric("Articles Embedded", f"{articles_embedded:,}")
+    
+    with col4:
+        avg_relevance = news_today.get('avg_relevance', 0)
+        st.metric("Avg Relevance", f"{avg_relevance:.3f}")
+    
+    with col5:
+        avg_quality = news_today.get('avg_quality', 0)
+        st.metric("Avg Quality", f"{avg_quality:.3f}")
+    
+    # Categories processed today
+    categories = news_today.get('categories_processed', 'None')
+    if categories and categories != 'None':
+        st.info(f"📊 Categories processed today: {categories}")
+    else:
+        st.warning("⚠️ No news categories processed today")
     
     st.markdown("---")
     

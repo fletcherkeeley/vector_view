@@ -75,9 +75,11 @@ class NewsDatabaseIntegration:
             self.engine = create_async_engine(
                 self.database_url,
                 echo=False,  # Set to True for SQL debugging
-                pool_size=5,
-                max_overflow=10,
-                pool_pre_ping=True
+                pool_size=10,
+                max_overflow=20,
+                pool_pre_ping=True,
+                pool_recycle=3600,  # Recycle connections after 1 hour
+                pool_timeout=30     # Wait up to 30 seconds for connection
             )
             
             self.AsyncSessionLocal = sessionmaker(

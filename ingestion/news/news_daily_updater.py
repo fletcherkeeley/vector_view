@@ -65,13 +65,13 @@ class NewsDailyUpdater:
     Follows the same pattern as FredDailyUpdater and YahooDailyUpdater.
     """
     
-    def __init__(self, database_url: str, max_api_calls: int = 950, notification_config: Optional[Dict] = None):
+    def __init__(self, database_url: str, max_api_calls: int = 440, notification_config: Optional[Dict] = None):
         """
         Initialize the daily news updater.
         
         Args:
             database_url: PostgreSQL connection string
-            max_api_calls: Maximum API calls per day (default 950, reserves 50 for other operations)
+            max_api_calls: Maximum API calls per day (default 440 for comprehensive daily coverage)
             notification_config: Optional config for email/slack notifications
         """
         self.database_url = database_url
@@ -91,6 +91,12 @@ class NewsDailyUpdater:
         self.total_articles_stored = 0
         self.categories_processed = []
         
+        # Add project root to path for database imports
+        import sys
+        from pathlib import Path
+        project_root = Path(__file__).parent.parent.parent
+        sys.path.insert(0, str(project_root))
+        
         self.logger = logging.getLogger(__name__)
         self.logger.info("News Daily Updater initialized")
     
@@ -109,66 +115,66 @@ class NewsDailyUpdater:
             List of category configurations with API call allocations
         """
         
-        # Priority-based allocation for daily updates (950 total calls)
+        # Priority-based allocation for daily updates (440 total calls)
         categories = [
             {
                 'name': 'federal_reserve',
                 'priority': 1,
-                'api_calls_allocated': 150,  # Highest priority - Fed policy impacts
+                'api_calls_allocated': 75,   # Highest priority - Fed policy impacts
                 'description': 'Federal Reserve policy and monetary decisions'
             },
             {
                 'name': 'employment',
                 'priority': 2,
-                'api_calls_allocated': 120,  # Labor market is key economic indicator
+                'api_calls_allocated': 60,   # Labor market is key economic indicator
                 'description': 'Employment data and labor market trends'
             },
             {
                 'name': 'inflation',
                 'priority': 3,
-                'api_calls_allocated': 110,  # Critical for Fed policy
+                'api_calls_allocated': 55,   # Critical for Fed policy
                 'description': 'Inflation trends and price stability'
             },
             {
                 'name': 'gdp_growth',
                 'priority': 4,
-                'api_calls_allocated': 100,  # Core economic growth metric
+                'api_calls_allocated': 50,   # Core economic growth metric
                 'description': 'GDP growth and economic expansion'
             },
             {
                 'name': 'financial_markets',
                 'priority': 5,
-                'api_calls_allocated': 90,   # Market sentiment and movements
+                'api_calls_allocated': 45,   # Market sentiment and movements
                 'description': 'Stock market and financial market trends'
             },
             {
                 'name': 'banking',
                 'priority': 6,
-                'api_calls_allocated': 80,   # Financial sector health
+                'api_calls_allocated': 40,   # Financial sector health
                 'description': 'Banking sector and financial institutions'
             },
             {
                 'name': 'trade',
                 'priority': 7,
-                'api_calls_allocated': 70,   # International trade impacts
+                'api_calls_allocated': 35,   # International trade impacts
                 'description': 'International trade and tariff policies'
             },
             {
                 'name': 'housing',
                 'priority': 8,
-                'api_calls_allocated': 60,   # Real estate market indicator
+                'api_calls_allocated': 30,   # Real estate market indicator
                 'description': 'Housing market and real estate trends'
             },
             {
                 'name': 'consumer_spending',
                 'priority': 9,
-                'api_calls_allocated': 50,   # Consumer behavior indicator
+                'api_calls_allocated': 25,   # Consumer behavior indicator
                 'description': 'Consumer spending and retail trends'
             },
             {
                 'name': 'energy',
                 'priority': 10,
-                'api_calls_allocated': 40,   # Energy sector and commodity prices
+                'api_calls_allocated': 25,   # Energy sector and commodity prices
                 'description': 'Energy markets and commodity prices'
             }
         ]
@@ -226,7 +232,7 @@ class NewsDailyUpdater:
             async with semaphore:
                 return await self._sync_category(cat_config, days_back, dry_run)
         
-        # Execute category updates concurrently
+        # Execute category updates concurrently with reduced concurrency
         tasks = [process_category_with_semaphore(cat) for cat in category_strategy]
         all_results = await asyncio.gather(*tasks, return_exceptions=True)
         
@@ -269,10 +275,51 @@ class NewsDailyUpdater:
             'efficiency': self.total_articles_stored / self.api_calls_used if self.api_calls_used > 0 else 0
         }
         
+        # Log sync operation to data_sync_log table (if not dry run)
+        if not dry_run:
+            await self._log_daily_sync_operation(sync_start_time, final_results)
+        
         # Save final statistics (consistent with other updaters)
         # Note: FRED/Yahoo don't save stats to files, they rely on database logging
         
         return final_results
+    
+    async def _log_daily_sync_operation(self, start_time: datetime, results: Dict[str, Any]) -> None:
+        """Log daily sync operation to data_sync_log table"""
+        try:
+            # Import here to avoid circular imports
+            from database.unified_database_setup import DataSyncLog, DataSourceType
+            
+            sync_log = DataSyncLog(
+                series_id=None,  # News syncs don't map to a single series
+                source_type=DataSourceType.NEWS_API,
+                sync_type='daily_news_update',
+                sync_start_time=start_time,
+                sync_end_time=results['end_time'],
+                sync_duration_ms=int(results['total_duration_seconds'] * 1000),
+                success=results['success'],
+                records_processed=results['total_articles_found'],
+                records_added=results['total_articles_stored'],
+                records_updated=0,
+                records_failed=results['total_articles_found'] - results['total_articles_stored'],
+                api_calls_made=results['total_api_calls_used'],
+                error_message=None if results['success'] else 'Some categories failed to sync',
+                error_type=None if results['success'] else 'partial_sync_failure',
+                data_quality_score=results['success_rate'] / 100.0,
+                sync_parameters={
+                    'categories_processed': results['categories_processed'],
+                    'efficiency': results['efficiency'],
+                    'category_results': results['category_results']
+                }
+            )
+            
+            async with self.db_integration.AsyncSessionLocal() as session:
+                session.add(sync_log)
+                await session.commit()
+                self.logger.info(f"✅ Logged daily sync operation to data_sync_log")
+                
+        except Exception as e:
+            self.logger.warning(f"Failed to log daily sync operation: {e}")
     
     async def _sync_category(
         self,
