@@ -11,7 +11,7 @@ from agents.base_agent import AgentContext
 from agents.economic import EconomicAnalysisAgent
 from agents.market_intelligence_agent import MarketIntelligenceAgent
 from agents.news_sentiment_agent import NewsSentimentAgent
-from agents.editorial_synthesis_agent import EditorialSynthesisAgent
+from agents.editorial import EditorialSynthesisAgent
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
