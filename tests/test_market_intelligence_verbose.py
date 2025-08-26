@@ -6,8 +6,13 @@ Shows detailed data flow, SQL queries, and agent processing steps.
 import asyncio
 import logging
 import pandas as pd
+import sys
+import os
 from datetime import datetime, timedelta
 from sqlalchemy import create_engine, text
+
+# Add project root to path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 # Set up extremely verbose logging
 logging.basicConfig(
@@ -75,7 +80,7 @@ async def test_sentiment_agent_first():
     print("=" * 80)
     
     try:
-        from agents.news_sentiment import NewsSentimentAgent
+        from agents.news_sentiment.news_sentiment_agent import NewsSentimentAgent
         from agents.base_agent import AgentContext
         
         print("1. Initializing News Sentiment Agent...")
@@ -194,7 +199,7 @@ async def test_market_intelligence_with_real_data():
     
     print("\nStep 3: Running integrated market intelligence analysis...")
     
-    from agents.market_intelligence import MarketIntelligenceAgent
+    from agents.market_intelligence.market_intelligence_agent import MarketIntelligenceAgent
     from agents.base_agent import AgentContext
     
     # Initialize agent

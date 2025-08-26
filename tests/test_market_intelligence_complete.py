@@ -6,7 +6,12 @@ Shows detailed data flow and analysis with actual database content.
 import asyncio
 import logging
 import pandas as pd
+import sys
+import os
 from datetime import datetime, timedelta
+
+# Add project root to path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 # Set up detailed logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -22,7 +27,7 @@ async def test_complete_market_intelligence():
         print("\n📰 STEP 1: Testing News Sentiment Agent")
         print("-" * 50)
         
-        from agents.news_sentiment import NewsSentimentAgent
+        from agents.news_sentiment.news_sentiment_agent import NewsSentimentAgent
         from agents.base_agent import AgentContext
         
         sentiment_agent = NewsSentimentAgent()
@@ -125,7 +130,7 @@ async def test_complete_market_intelligence():
         print(f"\n🎯 STEP 4: Running Complete Market Intelligence Analysis")
         print("-" * 50)
         
-        from agents.market_intelligence import MarketIntelligenceAgent
+        from agents.market_intelligence.market_intelligence_agent import MarketIntelligenceAgent
         
         market_agent = MarketIntelligenceAgent()
         

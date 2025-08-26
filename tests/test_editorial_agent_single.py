@@ -9,7 +9,7 @@ import os
 from datetime import datetime
 
 # Add project root to path
-sys.path.append('/home/lab/projects/vector-view')
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from agents.editorial.editorial_synthesis_agent import EditorialSynthesisAgent
 from agents.base_agent import AgentContext, AgentResponse

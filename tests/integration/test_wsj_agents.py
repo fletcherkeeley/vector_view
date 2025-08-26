@@ -20,14 +20,14 @@ logging.getLogger('chromadb.telemetry.product.posthog').setLevel(logging.CRITICA
 logging.getLogger('chromadb.telemetry').setLevel(logging.CRITICAL)
 
 # Add project root to path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from agents.base_agent import AgentContext, AgentType
 from agents.orchestration_agent import OrchestrationAgent
 from agents.economic import EconomicAnalysisAgent
-from agents.market_intelligence_agent import MarketIntelligenceAgent
-from agents.news_sentiment_agent import NewsSentimentAgent
-from agents.editorial_synthesis_agent import EditorialSynthesisAgent
+from agents.market_intelligence.market_intelligence_agent import MarketIntelligenceAgent
+from agents.news_sentiment.news_sentiment_agent import NewsSentimentAgent
+from agents.editorial.editorial_synthesis_agent import EditorialSynthesisAgent
 from agents.ai_service import OllamaService
 
 # Configure logging

@@ -2,13 +2,16 @@
 
 import chromadb
 import asyncio
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 from agents.news_sentiment.news_sentiment_data_handler import NewsSentimentDataHandler
 
 async def debug_chromadb():
     print("=== ChromaDB Debug ===")
     
     # Check ChromaDB collections
-    client = chromadb.PersistentClient(path='./chroma_db')
+    client = chromadb.PersistentClient(path='../../chroma_db')
     collections = client.list_collections()
     print(f"Collections: {[c.name for c in collections]}")
     

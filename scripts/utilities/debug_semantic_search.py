@@ -6,7 +6,7 @@ import asyncio
 async def debug_semantic_search():
     print("=== Semantic Search Debug ===")
     
-    client = chromadb.PersistentClient(path='./chroma_db')
+    client = chromadb.PersistentClient(path='../../chroma_db')
     collection = client.get_collection("financial_news")
     
     print(f"Total documents: {collection.count()}")

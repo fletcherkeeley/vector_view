@@ -5,6 +5,9 @@ Quick test to verify AI service fixes for <think> tag removal
 
 import asyncio
 import logging
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 from agents.ai_service import OllamaService
 
 logging.basicConfig(level=logging.INFO)

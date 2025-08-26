@@ -20,11 +20,15 @@ logging.getLogger('chromadb.telemetry.product.posthog').setLevel(logging.CRITICA
 logging.getLogger('chromadb.telemetry').setLevel(logging.CRITICAL)
 
 import sys
+import os
 import asyncio
 import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any
+
+# Add project root to path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 # Configure logging
 logging.basicConfig(

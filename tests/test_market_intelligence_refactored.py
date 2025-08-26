@@ -4,7 +4,12 @@ Test script for the refactored Market Intelligence Agent with separated concerns
 
 import asyncio
 import logging
+import sys
+import os
 from datetime import datetime, timedelta
+
+# Add project root to path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -14,7 +19,7 @@ async def test_market_intelligence_agent():
     """Test the refactored market intelligence agent"""
     try:
         # Import the refactored agent
-        from agents.market_intelligence import MarketIntelligenceAgent
+        from agents.market_intelligence.market_intelligence_agent import MarketIntelligenceAgent
         from agents.base_agent import AgentContext
         
         print("🧪 Testing Refactored Market Intelligence Agent")
