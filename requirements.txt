@@ -59,6 +59,9 @@ sentence-transformers==2.7.0
 transformers==4.44.2
 huggingface_hub==0.24.6
 
+# Graph database integration
+neo4j==5.28.2
+
 # Optional: Web framework for API endpoints
 fastapi==0.104.1
 uvicorn[standard]==0.24.0

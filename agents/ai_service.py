@@ -42,7 +42,7 @@ class OllamaService:
         self,
         base_url: str = "http://localhost:11434",
         model: str = "qwen3:32b",
-        timeout: int = 120,  # Longer timeout for larger model
+        timeout: int = 300,  # Extended timeout for batch processing
         max_retries: int = 3
     ):
         self.base_url = base_url.rstrip('/')

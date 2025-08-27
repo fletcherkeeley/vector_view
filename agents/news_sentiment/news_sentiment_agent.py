@@ -138,9 +138,9 @@ class NewsSentimentAgent(BaseAgent):
             except Exception as ai_error:
                 logger.warning(f"AI analysis generation failed: {ai_error}")
                 ai_response = {
-                    "analysis": f"News sentiment analysis for {context.timeframe} period shows {getattr(sentiment_analysis, 'overall_sentiment', 0.0):.2f} average sentiment across {len(articles)} articles.",
+                    "analysis": f"News sentiment analysis for {context.timeframe} period shows {getattr(sentiment_analysis, 'overall_sentiment', 0.0)} average sentiment across {len(articles)} articles.",
                     "confidence": getattr(sentiment_analysis, 'avg_confidence', 0.5),
-                    "key_points": [f"Articles analyzed: {len(articles)}", f"Average sentiment: {getattr(sentiment_analysis, 'overall_sentiment', 0.0):.2f}"]
+                    "key_points": [f"Articles analyzed: {len(articles)}", f"Average sentiment: {getattr(sentiment_analysis, 'overall_sentiment', 0.0)}"]
                 }
             
             # Build comprehensive context for AI analysis
